@@ -170,7 +170,8 @@ func run() error {
 		// Empty means trust nobody, which is correct for a direct connection.
 		// Set WORLDD_TRUSTED_PROXIES to the real CIDR when a reverse proxy
 		// terminates TLS in front of worldd.
-		TrustedProxies: cfg.TrustedProxies,
+		TrustedProxies:         cfg.TrustedProxies,
+		RegistrationsPerMinute: cfg.RegistrationsPerMinute,
 	})
 
 	srv := &http.Server{
@@ -243,6 +244,8 @@ type config struct {
 	Peppers       map[int16][]byte
 	PepperVersion int16
 	DevPepper     bool
+
+	RegistrationsPerMinute int
 }
 
 func loadConfig() (config, error) {
@@ -275,6 +278,14 @@ func loadConfig() (config, error) {
 				cfg.TrustedProxies = append(cfg.TrustedProxies, p)
 			}
 		}
+	}
+
+	if raw := env("WORLDD_REGISTRATIONS_PER_MINUTE", ""); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return cfg, errors.New("WORLDD_REGISTRATIONS_PER_MINUTE must be a positive integer")
+		}
+		cfg.RegistrationsPerMinute = n
 	}
 
 	if raw := env("WORLDD_MAX_CONNS", ""); raw != "" {

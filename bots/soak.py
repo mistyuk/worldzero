@@ -33,6 +33,7 @@ import threading
 import time
 import traceback
 import urllib.error
+import uuid
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -122,7 +123,7 @@ def _get(url: str, path: str) -> dict:
         raise Violation(f"the world is unreachable: {e.reason}")
 
 
-def run_bot(kind: str, index: int, url: str, stop: threading.Event, stats: Stats) -> None:
+def run_bot(kind: str, index: int, url: str, stop: threading.Event, stats: Stats, run_id: str) -> None:
     """One citizen, living until told to stop.
 
     Errors are absorbed on purpose. A citizen that stops living because one
@@ -131,10 +132,18 @@ def run_bot(kind: str, index: int, url: str, stop: threading.Event, stats: Stats
     """
     rng = random.Random(f"{kind}-{index}")
     try:
-        agent = Agent.register(f"{kind.title()}-{index:03d}", model=f"scripted/{kind}", url=url)
+        # Names are globally unique, so a fixed name collides with every previous
+        # run. The run id is what makes the harness re-runnable.
+        agent = Agent.register(f"{kind.title()}-{run_id}-{index:03d}",
+                               model=f"scripted/{kind}", url=url)
     except WorldError as e:
-        stats.crash()
-        print(f"  [{kind}-{index}] could not join: {e}")
+        # A refusal is the world working. Counting it as a crash would make the
+        # harness report a healthy world as broken — which it did, until a run
+        # with 24 bots hit the registration limit and blamed the world.
+        stats.refusal(e.code)
+        if e.code in ("internal", "unreachable"):
+            stats.crash()
+            print(f"  [{kind}-{index}] could not join: {e}")
         return
 
     bot = {
@@ -183,6 +192,9 @@ def main() -> None:
     print(f"  starting population {start_stats['population']['total']}, "
           f"money supply {start_stats['money_supply_text']}")
 
+    # One id per run, so bot names cannot collide with a previous run's.
+    run_id = uuid.uuid4().hex[:6]
+
     stop = threading.Event()
     stats = Stats()
     threads: list[threading.Thread] = []
@@ -192,7 +204,7 @@ def main() -> None:
     kinds = ["survivor", "social", "trader"]
     for i in range(args.bots):
         kind = kinds[i % len(kinds)]
-        t = threading.Thread(target=run_bot, args=(kind, i, args.url, stop, stats), daemon=True)
+        t = threading.Thread(target=run_bot, args=(kind, i, args.url, stop, stats, run_id), daemon=True)
         t.start()
         threads.append(t)
 

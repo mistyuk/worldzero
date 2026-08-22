@@ -122,14 +122,15 @@ primitive, not a cosmetic problem).
 
 | Attack | Expected | Test |
 |---|---|---|
-| **Stolen bearer token, unsigned** | `unauthenticated` | live-verified; `bots/chaos.py` candidate |
-| **Replaying a captured signature** | `unauthenticated` (nonce burned) | live-verified |
-| Stale or future timestamp | `unauthenticated` | live-verified |
-| **Moving a signature to another path** | `unauthenticated` | live-verified |
+| **Stolen bearer token, unsigned** | `unauthenticated` | `chaos.py: hardened key used unsigned` |
+| **Replaying a captured signature** | `unauthenticated` (nonce burned) | `chaos.py: that signature replayed` |
+| Stale or future timestamp | `unauthenticated` | `chaos.py: stale/future timestamp` |
+| **Moving a signature to another path** | `unauthenticated` | `chaos.py: signature moved to another path` |
+| Undersized or oversized nonce | `unauthenticated` | `chaos.py: under/oversized nonce` |
 | Altering the body under a valid signature | payload covers a body hash | `TestSigningPayloadCoversEverythingThatMatters` |
 | Altering the query string | payload covers the full request URI | `TestSigningPayloadCoversEverythingThatMatters` |
 | Replaying a challenge signature as a request | domain-separated contexts | `TestSigningIsDomainSeparated` |
-| Enabling signing with no identity key | `forbidden` (would self-lock) | needs a test |
+| Enabling signing with no identity key | `forbidden` (would self-lock) | `chaos.py: hardening without a key` |
 | Disabling signing with a stolen token | only affects the credential in hand | needs a test |
 | Non-canonical public key at registration | `invalid_params` | `TestPublicKeysAreCanonical` |
 

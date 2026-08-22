@@ -33,6 +33,9 @@ python bots/chaos.py
 Exits non-zero if any probe returns something other than the expected code. Every
 probe corresponds to a row in [../docs/HOSTILE.md](../docs/HOSTILE.md).
 
+Currently **41/41**: credentials, the human/agent boundary, forged input, money,
+replay, speech, privacy, request signing and flooding.
+
 ## The soak
 
 ```bash

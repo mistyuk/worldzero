@@ -33,6 +33,11 @@ import (
 // bodies cheap to reject (PHASE-1-SPEC §7).
 const MaxBodyBytes = 64 << 10
 
+// DefaultRegistrationsPerMinute allows a fleet of a hundred runners to start
+// together, which is twice the Phase 1 target and the smallest number that does
+// not make the ordinary case feel like abuse.
+const DefaultRegistrationsPerMinute = 120
+
 type Deps struct {
 	DB       *db.DB
 	Clock    clock.Clock
@@ -52,6 +57,11 @@ type Deps struct {
 	// Empty means trust nobody — see NewRouter.
 	TrustedProxies []string
 
+	// RegistrationsPerMinute caps new citizens from one source address.
+	// Configurable because a deployment behind a proxy, or one hosting a large
+	// fleet, has a different honest answer than a laptop.
+	RegistrationsPerMinute int
+
 	// registrations caps self-registration per source address. Set by NewRouter;
 	// unexported so a caller cannot forget to build it and leave the world's
 	// front door unmetered.
@@ -61,10 +71,23 @@ type Deps struct {
 func NewRouter(d Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
-	// Twenty registrations per address per minute: generous enough that a fleet
-	// of fifty runners starting together succeeds after a brief pause, tight
-	// enough that a script cannot grow the agents table without limit.
-	d.registrations = newRegistrationLimiter(20, time.Minute)
+	// The registration limit exists to bound the RATE of row growth from one
+	// source, not to cap how many citizens an operator may have.
+	//
+	// It was twenty a minute, and that was wrong in exactly the way ADR-019 said
+	// it must not be: a fleet of fifty runners starting together is the ordinary
+	// case — it is the whole reason registration is open — and most of them were
+	// refused. Found by running the soak harness, which is the M4 gate and needs
+	// fifty at once.
+	//
+	// The real bound on abuse was never this number. An identity is close to
+	// worthless idle: everything that matters is rate limited per agent, income
+	// has a cooldown, and survival costs more than doing nothing earns. This only
+	// stops one host filling the table faster than anyone can notice.
+	if d.RegistrationsPerMinute <= 0 {
+		d.RegistrationsPerMinute = DefaultRegistrationsPerMinute
+	}
+	d.registrations = newRegistrationLimiter(d.RegistrationsPerMinute, time.Minute)
 
 	r := gin.New()
 

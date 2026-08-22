@@ -163,6 +163,11 @@ class ChaosBot:
         self.results.append(Probe("private body on the firehose", "not-leaked",
                                   "LEAKED" if leaked else "not-leaked"))
 
+        # --- request signing (ADR-005) -------------------------------------
+        # Opt-in hardening: once on, a stolen bearer token must be useless on its
+        # own, and a captured signature must work exactly once.
+        self._signing_probes()
+
         # --- flooding ------------------------------------------------------
         # The point is not that flooding is refused but that it is refused
         # CORRECTLY: with rate_limited and a Retry-After, so a well-behaved
@@ -179,6 +184,74 @@ class ChaosBot:
                                   "rate_limited" if "rate_limited" in codes else ",".join(sorted(codes))))
 
     # ----------------------------------------------------------------------
+
+    def _signing_probes(self) -> None:
+        try:
+            import base64
+            import hashlib
+            import time as _time
+
+            from cryptography.hazmat.primitives import serialization
+        except ImportError:
+            self.results.append(Probe("request signing", "checked", "skipped (no cryptography)"))
+            return
+
+        victim = Agent.register(f"ChaosSigned-{uuid.uuid4().hex[:6]}", model="scripted/chaos", url=self.url)
+        if not victim.credentials.private_key_pem:
+            return
+        victim.require_signature(True)
+        key = victim.credentials.api_key
+        priv = serialization.load_pem_private_key(victim.credentials.private_key_pem.encode(), password=None)
+
+        def sign(method: str, path: str, ts: str, nonce: str, body: bytes = b"") -> dict:
+            payload = "\n".join([
+                "worldzero-request-v1", method.upper(), path, ts, nonce,
+                hashlib.sha256(body).hexdigest(),
+            ]).encode()
+            return {
+                "Authorization": f"Bearer {key}",
+                "X-WZ-Timestamp": ts,
+                "X-WZ-Nonce": nonce,
+                "X-WZ-Signature": base64.b64encode(priv.sign(payload)).decode(),
+            }
+
+        now = str(int(_time.time()))
+        path = "/v1/agents/me"
+
+        # A stolen token, with no signature at all.
+        self.probe("hardened key used unsigned", "unauthenticated", "GET", path,
+                   headers={"Authorization": f"Bearer {key}"})
+
+        # A legitimate signed request, then the very same one again.
+        nonce = uuid.uuid4().hex * 2
+        self.probe("signed request", "ACCEPTED", "GET", path, headers=sign("GET", path, now, nonce))
+        self.probe("that signature replayed", "unauthenticated", "GET", path,
+                   headers=sign("GET", path, now, nonce))
+
+        # A signature is for ONE request. Moving it elsewhere must not work.
+        moved = sign("GET", path, now, uuid.uuid4().hex * 2)
+        self.probe("signature moved to another path", "unauthenticated",
+                   "GET", "/v1/agents/me/observations", headers=moved)
+
+        # Old and future clocks.
+        self.probe("stale timestamp", "unauthenticated", "GET", path,
+                   headers=sign("GET", path, str(int(_time.time()) - 3600), uuid.uuid4().hex * 2))
+        self.probe("future timestamp", "unauthenticated", "GET", path,
+                   headers=sign("GET", path, str(int(_time.time()) + 3600), uuid.uuid4().hex * 2))
+
+        # A nonce short enough to be guessable, or long enough to be a lever on
+        # the nonce table.
+        self.probe("undersized nonce", "unauthenticated", "GET", path,
+                   headers=sign("GET", path, now, "short"))
+        self.probe("oversized nonce", "unauthenticated", "GET", path,
+                   headers=sign("GET", path, now, "n" * 500))
+
+        # An agent with no identity key must not be able to lock itself out.
+        keyless = Agent.register(f"ChaosKeyless-{uuid.uuid4().hex[:6]}",
+                                 model="scripted/chaos", url=self.url, identity_key=False)
+        self.probe("hardening without a key", "forbidden", "POST", "/v1/agents/me/security",
+                   {"require_signature": True},
+                   {"Authorization": f"Bearer {keyless.credentials.api_key}"})
 
     def _any_listing(self) -> str:
         _, d = self._raw("GET", "/v1/world/listings")

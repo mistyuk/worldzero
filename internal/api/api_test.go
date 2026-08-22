@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -17,12 +18,12 @@ import (
 	"github.com/mistyuk/worldzero/internal/api"
 	"github.com/mistyuk/worldzero/internal/economy"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
-	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
+	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 	"github.com/mistyuk/worldzero/internal/messaging"
 	"github.com/mistyuk/worldzero/internal/testutil"
 	"github.com/mistyuk/worldzero/internal/world"
@@ -32,12 +33,25 @@ func newServer(t *testing.T) http.Handler {
 	t.Helper()
 
 	d := testutil.DB(t)
-	clk := clock.System{}
+
+	// The SAME clock the server runs on, loaded from the same persisted anchor.
+	//
+	// Using a wall clock here instead looks harmless and is not: IDs are stamped
+	// from the world clock, so test-created rows would sort against
+	// server-created rows by a different measure of time. With the world running
+	// ahead of real time — which it does the moment anyone tries a dilated rate —
+	// anything ordered by id silently interleaves wrong, and a test asserting
+	// "the newest message is mine" fails for a reason that has nothing to do with
+	// messages.
+	clk, worldState, err := worldclock.Load(context.Background(), d.Pool(), 1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("world clock: %v", err)
+	}
 	gen := ids.NewGenerator(clk)
 
-	hasher, err := auth.NewHasher(1, map[int16][]byte{1: []byte("test-pepper-at-least-thirty-two-bytes")})
-	if err != nil {
-		t.Fatalf("hasher: %v", err)
+	hasher, herr := auth.NewHasher(1, map[int16][]byte{1: []byte("test-pepper-at-least-thirty-two-bytes")})
+	if herr != nil {
+		t.Fatalf("hasher: %v", herr)
 	}
 
 	appender := events.NewAppender(clk, gen)
@@ -81,6 +95,7 @@ func newServer(t *testing.T) http.Handler {
 		IDs:      gen,
 		// Discard: these tests deliberately provoke rejections, and the audit
 		// log for them is not what is under test here.
+		World:   worldState,
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Version: "test",
 	})
