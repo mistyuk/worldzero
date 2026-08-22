@@ -1,0 +1,32 @@
+# Binaries & build output
+/worldd
+/bin/
+*.exe
+
+# Env & secrets — never commit credentials
+.env
+.env.*
+!.env.example
+
+# Go
+/vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Node (web/)
+node_modules/
+.next/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local data
+/data/
+*.log
