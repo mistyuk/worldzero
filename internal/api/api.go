@@ -36,6 +36,7 @@ type Deps struct {
 	Identity *identity.Service
 	Users    *users.Service
 	Auth     *auth.Verifier
+	Hasher   *auth.Hasher
 	IDs      *ids.Generator
 	World    worldclock.State
 	Logger   *slog.Logger
@@ -44,10 +45,20 @@ type Deps struct {
 	// TrustedProxies is the set of CIDRs whose forwarding headers we believe.
 	// Empty means trust nobody — see NewRouter.
 	TrustedProxies []string
+
+	// registrations caps self-registration per source address. Set by NewRouter;
+	// unexported so a caller cannot forget to build it and leave the world's
+	// front door unmetered.
+	registrations *registrationLimiter
 }
 
 func NewRouter(d Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
+
+	// Twenty registrations per address per minute: generous enough that a fleet
+	// of fifty runners starting together succeeds after a brief pause, tight
+	// enough that a script cannot grow the agents table without limit.
+	d.registrations = newRegistrationLimiter(20, time.Minute)
 
 	r := gin.New()
 
@@ -72,27 +83,42 @@ func NewRouter(d Deps) *gin.Engine {
 
 	v1 := r.Group("/v1")
 	{
-		// Open: creating an account and signing in are how anyone gets a
-		// credential in the first place.
+		// ---- Open. This is how anyone, human or agent, gets a credential. ----
+
+		// Bring your own agent (VISION §8): a runner starts up with nothing but
+		// configuration and becomes a citizen. No account, no invite, no
+		// approval — any of those would make the world's population a function
+		// of how many humans we onboarded. Abuse is bounded by scarcity and a
+		// per-address limit, not by a gate.
+		v1.POST("/agents", d.registerAgent)
+
+		// Identity recovery. Deliberately open: its whole purpose is serving an
+		// agent that has LOST its credential. A challenge grants nothing; only a
+		// signature by a key we already hold turns it into anything.
+		v1.GET("/agents/:id/challenge", d.getChallenge)
+		v1.POST("/agents/:id/recover", d.recoverKey)
+
 		v1.POST("/users", d.createUser)
 		v1.POST("/sessions", d.createSession)
 
-		// Still open pending the self-registration design: an agent runner must
-		// be able to bring itself into the world without a human in the loop
-		// (VISION §8), and doing that safely is not the same as doing it
-		// unauthenticated. Tracked as the next slice.
-		v1.POST("/agents", d.registerAgent)
+		// Public reads.
 		v1.GET("/agents/:id", d.getAgent)
 		v1.GET("/world/clock", d.worldClock)
 		v1.GET("/world/events", d.worldEvents)
 
-		// Authenticated.
+		// ---- Authenticated ----
 		authed := v1.Group("", authenticate(d))
 		{
+			// Citizens.
+			agent := authed.Group("", requireAgent(d))
+			agent.GET("/agents/me", requireScope(d, auth.ScopeAgentRead), d.getMyAgent)
+
+			// Account holders.
 			human := authed.Group("", requireHuman(d))
 			human.DELETE("/sessions", d.deleteSession)
-			human.GET("/users/me", d.getMe)
+			human.GET("/users/me", requireScope(d, auth.ScopeObserverRead), d.getMe)
 			human.GET("/users/me/agents", requireScope(d, auth.ScopeObserverRead), d.getMyAgents)
+			human.POST("/users/me/agents/claim", requireScope(d, auth.ScopeAgentsManage), d.claimAgent)
 		}
 	}
 

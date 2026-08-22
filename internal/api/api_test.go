@@ -37,9 +37,10 @@ func newServer(t *testing.T) http.Handler {
 	return api.NewRouter(api.Deps{
 		DB:       d,
 		Clock:    clk,
-		Identity: identity.NewService(clk, gen, events.NewAppender(clk, gen)),
+		Identity: identity.NewService(clk, gen, events.NewAppender(clk, gen)).WithHasher(hasher),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
+		Hasher:   hasher,
 		IDs:      gen,
 		// Discard: these tests deliberately provoke rejections, and the audit
 		// log for them is not what is under test here.

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
@@ -50,10 +51,22 @@ type Service struct {
 	clk clock.Clock
 	gen *ids.Generator
 	ev  *events.Appender
+
+	// nonceHasher keeps identity challenges unusable from a database dump. It is
+	// optional so that tests and callers with no auth concern can construct a
+	// Service; the challenge paths refuse to run without it.
+	nonceHasher *auth.Hasher
 }
 
 func NewService(clk clock.Clock, gen *ids.Generator, ev *events.Appender) *Service {
 	return &Service{clk: clk, gen: gen, ev: ev}
+}
+
+// WithHasher returns a Service able to run the identity-challenge paths.
+func (s *Service) WithHasher(h *auth.Hasher) *Service {
+	c := *s
+	c.nonceHasher = h
+	return &c
 }
 
 type RegisterParams struct {

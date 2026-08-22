@@ -148,18 +148,32 @@ func requireScope(d Deps, s auth.Scope) gin.HandlerFunc {
 
 // requireHuman restricts a route to account holders.
 //
-// (Its mirror, requireAgent, arrives with the first agent-authed route rather
-// than sitting here unused — dead middleware is how a gate ends up on no route
-// at all.)
+// Written as a positive allow-list, NOT as "not an agent". The negation is
+// subtly dangerous: it makes every credential kind that does not yet exist a
+// human principal by default, so the next kind added — a service credential, a
+// foundation-agent credential — silently inherits access to every human route
+// until someone remembers to exclude it. An allow-list fails closed instead.
 //
 // This is the mechanical form of the boundary ADR-015 draws: agent principals
 // reach the actions endpoint and read surfaces, and nothing else. An agent that
-// could mint credentials or create citizens would be able to grow its own
-// authority, which is the one thing the whole scope model exists to prevent.
+// could mint credentials or claim citizens could grow its own authority, which
+// is the one thing the whole scope model exists to prevent.
 func requireHuman(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if p := MustPrincipal(c); p.IsAgent() {
+		switch MustPrincipal(c).Kind {
+		case auth.KindSession, auth.KindUserKey:
+			c.Next()
+		default:
 			fail(c, d.Logger, werr.New(werr.Forbidden, "only an account holder may do that"))
+		}
+	}
+}
+
+// requireAgent restricts a route to citizens, also as an allow-list.
+func requireAgent(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if MustPrincipal(c).Kind != auth.KindAgentKey {
+			fail(c, d.Logger, werr.New(werr.Forbidden, "only a citizen may do that"))
 			return
 		}
 		c.Next()

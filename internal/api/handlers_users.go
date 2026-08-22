@@ -39,10 +39,20 @@ func (d Deps) createUser(c *gin.Context) {
 		return
 	}
 
+	// Validate and hash BEFORE opening a transaction. Argon2 takes tens of
+	// milliseconds and queues; doing it with a pooled connection held would let
+	// a few hundred concurrent signups pin the whole pool behind the hash queue
+	// and take the world offline from an unauthenticated endpoint.
+	prepared, err := d.Users.PrepareCreate(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
 	var u users.User
-	err := d.DB.Tx(c.Request.Context(), func(ctx context.Context, tx pgx.Tx) error {
+	err = d.DB.Tx(c.Request.Context(), func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		u, err = d.Users.Create(ctx, tx, req.Email, req.Password)
+		u, err = d.Users.Create(ctx, tx, prepared)
 		return err
 	})
 	if err != nil {

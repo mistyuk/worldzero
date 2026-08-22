@@ -59,33 +59,75 @@ type Querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// Create registers a human account.
-func (s *Service) Create(ctx context.Context, tx pgx.Tx, email, password string) (User, error) {
+// Prepared is a validated, hashed account waiting to be written.
+//
+// It exists to keep argon2 OUT of the database transaction, and that separation
+// is load-bearing rather than stylistic. Hashing takes tens of milliseconds and
+// queues behind MaxConcurrent slots; doing it inside a transaction means each
+// waiting request holds a pooled connection for the whole wait. With MaxConns at
+// 10 and a two-slot hash queue, a few hundred concurrent signups pin every
+// connection in the pool behind argon2 and take the entire world offline —
+// unauthenticated, from one endpoint, with no credential required.
+//
+// So: validate and hash first, open the transaction second, and hold it only for
+// the INSERT.
+type Prepared struct {
+	id        string
+	email     string
+	emailNorm string
+	hash      string
+	createdAt time.Time
+}
+
+// ID is the account id this will be written under, known before the write so a
+// caller can log or correlate it.
+func (p Prepared) ID() string { return p.id }
+
+// PrepareCreate validates the inputs and does the expensive work, with NO
+// database involvement. Cancellable: a client that gives up stops occupying a
+// hash slot.
+func (s *Service) PrepareCreate(ctx context.Context, email, password string) (Prepared, error) {
 	addr, norm, err := normalizeEmail(email)
 	if err != nil {
-		return User{}, err
+		return Prepared{}, err
 	}
 	if err := checkPassword(password); err != nil {
-		return User{}, err
+		return Prepared{}, err
 	}
 
-	hash, err := HashPassword(password, s.params)
+	hash, err := HashPassword(ctx, password, s.params)
 	if err != nil {
-		return User{}, werr.Wrap(werr.Internal, "could not create account", err)
+		if ctx.Err() != nil {
+			return Prepared{}, werr.New(werr.Busy, "the server is busy; retry shortly")
+		}
+		return Prepared{}, werr.Wrap(werr.Internal, "could not create account", err)
 	}
 
-	now := s.clk.Real() // account lifecycle is real time (ADR-018)
+	return Prepared{
+		id:        s.gen.New(ids.User),
+		email:     addr,
+		emailNorm: norm,
+		hash:      hash,
+		createdAt: s.clk.Real(), // account lifecycle is real time (ADR-018)
+	}, nil
+}
+
+// Create writes a prepared account. Cheap, so the transaction is short.
+func (s *Service) Create(ctx context.Context, tx pgx.Tx, p Prepared) (User, error) {
+	if p.id == "" {
+		return User{}, werr.New(werr.Internal, "account was not prepared")
+	}
+
 	u := User{
-		ID:        s.gen.New(ids.User),
-		Email:     addr,
+		ID:        p.id,
+		Email:     p.email,
 		Status:    StatusActive,
-		CreatedAt: now,
+		CreatedAt: p.createdAt,
 	}
-
-	_, err = tx.Exec(ctx, `
+	_, err := tx.Exec(ctx, `
 		INSERT INTO users (id, email, email_norm, password_hash, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)
-	`, u.ID, u.Email, norm, hash, u.Status, now)
+	`, u.ID, u.Email, p.emailNorm, p.hash, u.Status, p.createdAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			// Deliberately the same shape of answer as success would give the
@@ -113,11 +155,11 @@ func (s *Service) Authenticate(ctx context.Context, q Querier, email, password s
 
 	_, norm, err := normalizeEmail(email)
 	if err != nil {
-		DummyVerify(password)
+		DummyVerify(ctx, password)
 		return fail()
 	}
 	if len(password) == 0 || len(password) > MaxPasswordLen {
-		DummyVerify(password)
+		DummyVerify(ctx, password)
 		return fail()
 	}
 
@@ -132,7 +174,7 @@ func (s *Service) Authenticate(ctx context.Context, q Querier, email, password s
 
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		DummyVerify(password)
+		DummyVerify(ctx, password)
 		return fail()
 	case err != nil:
 		// A database failure is not an authentication failure. Saying otherwise
@@ -142,11 +184,11 @@ func (s *Service) Authenticate(ctx context.Context, q Querier, email, password s
 
 	if hash == nil {
 		// No password login configured (system accounts). Still burn the time.
-		DummyVerify(password)
+		DummyVerify(ctx, password)
 		return fail()
 	}
 
-	ok, err := VerifyPassword(password, *hash)
+	ok, err := VerifyPassword(ctx, password, *hash)
 	if err != nil {
 		return User{}, werr.Wrap(werr.Internal, "could not sign in", err)
 	}

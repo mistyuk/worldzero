@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# The gate. GitHub Actions is unavailable to this project, so the mechanical
+# check that a change is safe runs here instead -- before anything leaves the
+# machine, which is the same place in the pipeline it would otherwise occupy.
+#
+# Enable once per clone:   git config core.hooksPath .githooks
+# Bypass in an emergency:  git push --no-verify   (and expect to explain why)
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+echo "pre-push: running scripts/ci.sh"
+if ! bash scripts/ci.sh; then
+    echo
+    echo "pre-push: BLOCKED -- scripts/ci.sh failed."
+    echo "No CI will catch this after the fact. Fix it, or push with --no-verify deliberately."
+    exit 1
+fi

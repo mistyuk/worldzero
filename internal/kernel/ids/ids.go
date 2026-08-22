@@ -26,18 +26,19 @@ import (
 // Prefixes. Adding one means adding it here, not inventing a string at a call
 // site.
 const (
-	User     = "usr"
-	Session  = "ses"
-	Agent    = "agent"
-	APIKey   = "key"
-	Event    = "evt"
-	Txn      = "txn"
-	Account  = "acct"
-	Posting  = "post"
-	Location = "loc"
-	Item     = "itm"
-	Listing  = "lst"
-	Message  = "msg"
+	User      = "usr"
+	Session   = "ses"
+	Agent     = "agent"
+	APIKey    = "key"
+	Event     = "evt"
+	Txn       = "txn"
+	Account   = "acct"
+	Posting   = "post"
+	Location  = "loc"
+	Item      = "itm"
+	Listing   = "lst"
+	Message   = "msg"
+	Challenge = "chl"
 )
 
 const sep = "_"

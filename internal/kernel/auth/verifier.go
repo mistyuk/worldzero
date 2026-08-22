@@ -206,11 +206,30 @@ func (v *Verifier) Issue(ctx context.Context, tx pgx.Tx, tok Token, owner Princi
 
 // Revoke retires a credential.
 //
-// The ownership predicate is in the WHERE clause, not checked beforehand:
-// without it, any citizen who has seen a credential id — they appear in logs and
-// in error messages — could revoke it. A revocation that does not match its
-// owner simply affects no rows.
+// AUTHORITY IS NARROWER THAN OWNERSHIP, and the distinction matters because
+// agent keys are shown once and a wrongly revoked one strands a citizen.
+// Revoking your own credential — signing out — is always allowed and needs no
+// scope. Revoking any OTHER credential reaches your agents' keys, so it demands
+// agents:manage. Without that split, a credential minted for some narrow purpose
+// could still delete an entire fleet, because it happens to carry a user id.
+//
+// The ownership predicate stays in the WHERE clause rather than a prior SELECT:
+// under READ COMMITTED a check-then-write races, and a revocation that does not
+// match its owner should simply affect no rows. Credential ids appear in logs
+// and error messages, so seeing one must confer nothing.
 func (v *Verifier) Revoke(ctx context.Context, tx pgx.Tx, credentialID string, by Principal, reason string) error {
+	if credentialID != by.CredentialID && !by.Allows(ScopeAgentsManage) {
+		return werr.New(werr.InsufficientScope,
+			"revoking another credential requires the agents:manage capability")
+	}
+	if by.UserID == "" {
+		// An agent principal has no fleet to manage. It may still sign itself
+		// out, which the self-revocation branch below covers.
+		if credentialID != by.CredentialID {
+			return werr.New(werr.Forbidden, "only an account holder may revoke that")
+		}
+	}
+
 	if reason == "" {
 		reason = "revoked by owner"
 	}
@@ -223,10 +242,11 @@ func (v *Verifier) Revoke(ctx context.Context, tx pgx.Tx, credentialID string, b
 		SET revoked_at = $1, revoked_reason = $2
 		WHERE id = $3
 		  AND revoked_at IS NULL
-		  AND ( (user_id IS NOT NULL AND user_id = $4)
+		  AND ( id = $5
+		     OR (user_id IS NOT NULL AND user_id = $4)
 		     OR (agent_id IS NOT NULL AND agent_id IN (
 		            SELECT id FROM agents WHERE owner_user_id = $4)) )
-	`, v.clk.Real(), reason, credentialID, by.UserID)
+	`, v.clk.Real(), reason, credentialID, nullIfEmpty(by.UserID), by.CredentialID)
 	if err != nil {
 		return werr.Wrap(werr.Internal, "could not revoke credential", err)
 	}
@@ -236,4 +256,15 @@ func (v *Verifier) Revoke(ctx context.Context, tx pgx.Tx, credentialID string, b
 		return werr.New(werr.NotFound, "no such credential")
 	}
 	return nil
+}
+
+// nullIfEmpty keeps an absent user id out of the SQL comparison entirely.
+// Passing "" would make `user_id = ”` a live predicate rather than a no-op,
+// which is the kind of thing that quietly matches nothing today and something
+// unexpected after the next schema change.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

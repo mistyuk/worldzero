@@ -48,6 +48,19 @@ this project will ever get.
 | Credential token leaking via logs or `fmt` | redacted by `String`/`LogValue` | `TestTokenDoesNotLeakThroughFormatting` |
 | Stolen database dump replayed as credentials | pepper is not in the database | `TestHashIsPepperDependent` |
 | Unreadable hash version treated as a bad credential | `internal`, never `unauthenticated` | `TestUnknownHashVersionIsNotAnAuthFailure` |
+| **Body naming the agent's owner** at registration | ignored; owner comes from the kernel | `TestBodyCannotNameTheOwner` |
+| Agent credential reaching human routes | `forbidden` | `TestAgentCannotActAsHumanOrViceVersa` |
+| Human session acting as its own citizen | `forbidden` | `TestAgentCannotActAsHumanOrViceVersa` |
+| Session token replayed as a bearer token | `unauthenticated` | `TestHumanAuthHostileCases` |
+| Cookie and bearer presented together | `unauthenticated` | `TestHumanAuthHostileCases` |
+| Revoked session replayed | `unauthenticated` | `TestLogoutRevokesTheSessionServerSide` |
+| Claim code redeemed twice | `not_found` | `TestClaimBindsAnAgentToItsOwner` |
+| **Recovery signed by the wrong key** | `unauthenticated` | `TestRecoveryRejectsForgeries` |
+| **Recovery signature without domain separation** | `unauthenticated` | `TestRecoveryRejectsForgeries` |
+| Identity challenge replayed | `unauthenticated` | `TestLostKeyIsRecoverableWithAnIdentityKey` |
+| Malformed / non-canonical Ed25519 public key | `invalid_params` | `TestRegistrationRejectsHostileInput` |
+| Owner id leaking through a public profile | absent from the DTO | `TestPublicProfileHidesTheOwner` |
+| Account enumeration by timing on login | equal cost either way | `TestUnknownAddressCostsTheSameAsWrongPassword` |
 
 Two of these are worth calling out because they were found by writing the test rather than
 by reasoning: the **non-canonical ID** case (Crockford base32 is case-insensitive, so a

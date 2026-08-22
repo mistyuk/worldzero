@@ -23,10 +23,14 @@ func newService() *users.Service {
 
 func create(t *testing.T, s *users.Service, d *db.DB, email, password string) (users.User, error) {
 	t.Helper()
+	prepared, err := s.PrepareCreate(context.Background(), email, password)
+	if err != nil {
+		return users.User{}, err
+	}
 	var u users.User
-	err := d.Tx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+	err = d.Tx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		u, err = s.Create(ctx, tx, email, password)
+		u, err = s.Create(ctx, tx, prepared)
 		return err
 	})
 	return u, err
@@ -222,11 +226,11 @@ func TestEmailRules(t *testing.T) {
 // TestPasswordHashIsNotReversibleOrStable checks the two things a stored hash
 // must be: not the password, and not the same twice.
 func TestPasswordHashIsNotReversibleOrStable(t *testing.T) {
-	a, err := users.HashPassword(goodPassword, users.Default)
+	a, err := users.HashPassword(context.Background(), goodPassword, users.Default)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	b, err := users.HashPassword(goodPassword, users.Default)
+	b, err := users.HashPassword(context.Background(), goodPassword, users.Default)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -241,18 +245,18 @@ func TestPasswordHashIsNotReversibleOrStable(t *testing.T) {
 		t.Fatalf("unexpected PHC header: %s", a)
 	}
 
-	ok, err := users.VerifyPassword(goodPassword, a)
+	ok, err := users.VerifyPassword(context.Background(), goodPassword, a)
 	if err != nil || !ok {
 		t.Fatalf("a hash failed to verify its own password: ok=%v err=%v", ok, err)
 	}
-	ok, err = users.VerifyPassword("wrong", a)
+	ok, err = users.VerifyPassword(context.Background(), "wrong", a)
 	if err != nil || ok {
 		t.Fatalf("the wrong password verified: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestVerifyRejectsMalformedHashes(t *testing.T) {
-	valid, err := users.HashPassword(goodPassword, users.Default)
+	valid, err := users.HashPassword(context.Background(), goodPassword, users.Default)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -269,7 +273,7 @@ func TestVerifyRejectsMalformedHashes(t *testing.T) {
 		"too many fields": valid + "$extra",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if ok, err := users.VerifyPassword(goodPassword, bad); err == nil && ok {
+			if ok, err := users.VerifyPassword(context.Background(), goodPassword, bad); err == nil && ok {
 				t.Fatalf("malformed hash %q verified", bad)
 			}
 		})
@@ -282,7 +286,7 @@ func TestVerifyRejectsMalformedHashes(t *testing.T) {
 func TestNeedsRehash(t *testing.T) {
 	weak := users.Params{Memory: 8 * 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}
 
-	old, err := users.HashPassword(goodPassword, weak)
+	old, err := users.HashPassword(context.Background(), goodPassword, weak)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -290,7 +294,7 @@ func TestNeedsRehash(t *testing.T) {
 		t.Error("a weaker hash was not flagged for upgrade")
 	}
 
-	current, err := users.HashPassword(goodPassword, users.Default)
+	current, err := users.HashPassword(context.Background(), goodPassword, users.Default)
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
@@ -299,7 +303,7 @@ func TestNeedsRehash(t *testing.T) {
 	}
 
 	// An old hash must still verify, or raising the cost would lock everyone out.
-	if ok, err := users.VerifyPassword(goodPassword, old); err != nil || !ok {
+	if ok, err := users.VerifyPassword(context.Background(), goodPassword, old); err != nil || !ok {
 		t.Fatalf("a hash made with older parameters no longer verifies: ok=%v err=%v", ok, err)
 	}
 }

@@ -1,6 +1,7 @@
 package users
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -52,7 +53,21 @@ var MaxConcurrent = max(2, runtime.NumCPU()/2)
 
 var hashSlots = make(chan struct{}, MaxConcurrent)
 
-func acquire() { hashSlots <- struct{}{} }
+// acquire blocks for a slot, and is cancellable.
+//
+// An uncancellable channel send here is a queue that only grows: a client that
+// has already given up still holds its place, and every caller behind it waits
+// for work nobody wants. With a context, abandoned requests drain instead of
+// accumulating.
+func acquire(ctx context.Context) error {
+	select {
+	case hashSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func release() { <-hashSlots }
 
 var (
@@ -67,13 +82,15 @@ var (
 // The parameters travel with the hash, so raising them later does not strand
 // existing users: an old hash still verifies under its own settings and can be
 // upgraded on the next successful login.
-func HashPassword(password string, p Params) (string, error) {
+func HashPassword(ctx context.Context, password string, p Params) (string, error) {
 	salt := make([]byte, p.SaltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
 
-	acquire()
+	if err := acquire(ctx); err != nil {
+		return "", err
+	}
 	key := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
 	release()
 
@@ -87,13 +104,15 @@ func HashPassword(password string, p Params) (string, error) {
 // The comparison is constant-time. That matters less than it does for a token —
 // an attacker who can time argon2 to a byte has already won — but it costs
 // nothing and removes the question.
-func VerifyPassword(password, encoded string) (bool, error) {
+func VerifyPassword(ctx context.Context, password, encoded string) (bool, error) {
 	p, salt, want, err := decode(encoded)
 	if err != nil {
 		return false, err
 	}
 
-	acquire()
+	if err := acquire(ctx); err != nil {
+		return false, err
+	}
 	got := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, uint32(len(want)))
 	release()
 
@@ -107,8 +126,10 @@ func VerifyPassword(password, encoded string) (bool, error) {
 // account-enumeration oracle, and a slow hash makes the signal *louder* than it
 // would be with a fast one: the difference between 40ms and 0.2ms is trivially
 // measurable over the network.
-func DummyVerify(password string) {
-	acquire()
+func DummyVerify(ctx context.Context, password string) {
+	if err := acquire(ctx); err != nil {
+		return
+	}
 	_ = argon2.IDKey([]byte(password), dummySalt,
 		Default.Time, Default.Memory, Default.Threads, Default.KeyLen)
 	release()

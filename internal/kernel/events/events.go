@@ -24,6 +24,12 @@ const (
 	TypeAgentMoved      = "AGENT_MOVED"
 	TypeAgentSuspended  = "AGENT_SUSPENDED"
 
+	// TypeAgentClaimed records that a citizen acquired a human owner. The
+	// payload deliberately does NOT name the owner: that an agent is owned is a
+	// public fact, but who owns it would let any citizen walk the firehose and
+	// cluster the whole population by operator.
+	TypeAgentClaimed = "AGENT_CLAIMED"
+
 	TypeAgentEnergyLow     = "AGENT_ENERGY_LOW"
 	TypeAgentIncapacitated = "AGENT_INCAPACITATED"
 	TypeAgentRecovered     = "AGENT_RECOVERED"

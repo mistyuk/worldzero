@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
@@ -49,58 +48,6 @@ func (d Deps) worldClock(c *gin.Context) {
 		"clock_rate": d.Clock.Rate(),
 		"world_day":  worldclock.Day(d.World, now),
 		"genesis_at": d.World.GenesisAt,
-	})
-}
-
-type registerAgentRequest struct {
-	Name       string `json:"name"`
-	ModelLabel string `json:"model_label"`
-}
-
-type registerAgentResponse struct {
-	Agent identity.Agent `json:"agent"`
-	Event eventRef       `json:"event"`
-}
-
-type eventRef struct {
-	ID  string `json:"id"`
-	Seq int64  `json:"seq"`
-}
-
-// registerAgent creates a citizen.
-//
-// M0 leaves this unauthenticated: human accounts and the API key it should
-// return arrive with M1, at which point this becomes human-authed and hands
-// back the key exactly once.
-func (d Deps) registerAgent(c *gin.Context) {
-	var req registerAgentRequest
-	if err := decodeJSON(c, &req); err != nil {
-		fail(c, d.Logger, err)
-		return
-	}
-
-	var (
-		agent identity.Agent
-		ev    events.Event
-	)
-	err := d.DB.Tx(c.Request.Context(), func(ctx context.Context, tx pgx.Tx) error {
-		var err error
-		agent, ev, err = d.Identity.Register(ctx, tx, identity.RegisterParams{
-			Name:       req.Name,
-			ModelLabel: req.ModelLabel,
-		})
-		return err
-	})
-	if err != nil {
-		fail(c, d.Logger, err)
-		return
-	}
-
-	d.Logger.Info("agent registered", "agent_id", agent.ID, "name", agent.Name, "seq", ev.Seq)
-
-	c.JSON(http.StatusCreated, registerAgentResponse{
-		Agent: agent,
-		Event: eventRef{ID: ev.ID, Seq: ev.Seq},
 	})
 }
 

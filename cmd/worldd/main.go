@@ -97,9 +97,10 @@ func run() error {
 	router := api.NewRouter(api.Deps{
 		DB:       database,
 		Clock:    clk,
-		Identity: identity.NewService(clk, gen, appender),
+		Identity: identity.NewService(clk, gen, appender).WithHasher(hasher),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
+		Hasher:   hasher,
 		IDs:      gen,
 		World:    worldState,
 		Logger:   log,
