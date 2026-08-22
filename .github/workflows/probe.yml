@@ -1,0 +1,9 @@
+name: Runner probe
+on:
+  push:
+    branches: [main]
+jobs:
+  probe:
+    runs-on: self-hosted
+    steps:
+      - run: echo ok
