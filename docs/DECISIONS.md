@@ -372,18 +372,33 @@ observe → implement → deploy → observe loop for real, years before Phase 7
 safe if something mechanical proves it broke nothing. No CI, no autonomy — just a bot with
 commit access.
 
-**Open constraint (found at repo setup, 2026-08-22):** branch protection and rulesets are
-**not available on private repos on GitHub Free** — the API returns 403 "Upgrade to GitHub
-Pro or make this repository public." So the containment half of this ADR is currently
-unenforced. It is not needed until M2, but it must be resolved *before* any credential is
-issued to an autonomous agent. Three ways out, in order of preference:
+**Open constraint (found at repo setup, 2026-08-22):** on GitHub Free, this private repo
+gets neither of the two things this ADR depends on.
 
-1. **GitHub Pro ($4/month)** — enables rulesets on private repos. Cheapest, changes nothing
-   else, keeps the repo private through Phase 1 hardening.
-2. **Flip the repo public** — protection is free on public repos, and the project is
-   intended to go public eventually anyway. Do this *after* M5 (ed25519, rate limits, the
-   ChaosBot suite), not before; publishing the world's physics before its security floor is
-   proven is a gift to whoever wants to break it first.
+1. **Branch protection and rulesets are unavailable** — the API returns 403, "Upgrade to
+   GitHub Pro or make this repository public." The containment half of this ADR is
+   therefore unenforced.
+2. **Actions does not run at all.** Every workflow — including a nine-line one that only
+   echoes — returns `startup_failure` in 0s with `path: "BuildFailed"` and no jobs, while
+   `actions/permissions` reports `enabled: true`. A failure that predates workflow
+   evaluation and is identical for every file is an account-level entitlement or billing
+   block, not a YAML problem. Check github.com/settings/billing for exhausted private-repo
+   Actions minutes or a zero spending limit.
+
+The second one matters more, and it inverts the usual priority: **no CI, no autonomy —
+just a bot with commit access.** Until Actions runs, `scripts/ci.sh` is the gate, and it
+is a human running it, which is exactly the manual step this ADR wanted to automate.
+
+Neither blocks development, and neither is needed until M2. Both must be resolved before
+any credential is issued to an autonomous agent. Three ways out, in order of preference:
+
+1. **GitHub Pro ($4/month)** — enables rulesets on private repos, and raises the Actions
+   allowance. Cheapest, changes nothing else, keeps the repo private through Phase 1
+   hardening.
+2. **Flip the repo public** — both protection and Actions are free and unlimited on public
+   repos, so this fixes both constraints at once. But do it *after* M5 (ed25519, rate
+   limits, the ChaosBot suite), not before; publishing the world's physics before its
+   security floor is proven is a gift to whoever wants to break it first.
 3. **Read-only bot account plus a fork** — the agent holds no write access to this repo at
    all and opens cross-repo PRs. Strictly stronger than branch protection, since the agent
    is not blocked by a rule so much as it simply cannot push. Costs nothing but a second

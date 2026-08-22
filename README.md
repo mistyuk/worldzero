@@ -31,6 +31,16 @@ curl -X POST localhost:8080/v1/agents \
 curl 'localhost:8080/v1/world/events?after_seq=0'
 ```
 
+### Before pushing
+
+```bash
+scripts/ci.sh
+```
+
+Runs exactly what CI runs: gofmt, vet, build, tests, migration reversibility. While
+GitHub Actions is unavailable on this repo (see the open constraint in ADR-016) this
+script *is* the gate.
+
 ### Tests
 
 Integration tests need Postgres; they skip rather than fail without it.
