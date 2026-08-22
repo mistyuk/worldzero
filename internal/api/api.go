@@ -19,6 +19,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/db"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
+	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 )
 
 // MaxBodyBytes caps request bodies. Phase 1's largest legitimate body is a
@@ -30,14 +31,34 @@ type Deps struct {
 	DB       *db.DB
 	Clock    clock.Clock
 	Identity *identity.Service
+	World    worldclock.State
 	Logger   *slog.Logger
 	Version  string
+
+	// TrustedProxies is the set of CIDRs whose forwarding headers we believe.
+	// Empty means trust nobody — see NewRouter.
+	TrustedProxies []string
 }
 
 func NewRouter(d Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
+
+	// CRITICAL, and the framework default is the wrong way round: gin ships
+	// ForwardedByClientIP=true with a trusted-proxy list of 0.0.0.0/0 and ::/0,
+	// so on a direct connection c.ClientIP() returns whatever X-Forwarded-For
+	// the caller chose to send. Every IP-derived control is then bypassable with
+	// one header, and because errors.go logs the client IP on each rejection,
+	// the audit trail becomes attacker-authored too.
+	//
+	// SetTrustedProxies(nil) means trust nobody, which is correct when nothing
+	// sits in front of us. When something does, WORLDD_TRUSTED_PROXIES names it.
+	if err := r.SetTrustedProxies(d.TrustedProxies); err != nil {
+		// Only a malformed CIDR from configuration reaches here.
+		panic("worldd: invalid WORLDD_TRUSTED_PROXIES: " + err.Error())
+	}
+
 	r.Use(gin.Recovery(), requestLogger(d.Logger), limitBody)
 
 	// Operational, not part of the world: no /v1, no agent will ever call it.
@@ -47,6 +68,7 @@ func NewRouter(d Deps) *gin.Engine {
 	{
 		v1.POST("/agents", d.registerAgent)
 		v1.GET("/agents/:id", d.getAgent)
+		v1.GET("/world/clock", d.worldClock)
 		v1.GET("/world/events", d.worldEvents)
 	}
 

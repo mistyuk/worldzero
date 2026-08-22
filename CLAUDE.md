@@ -8,6 +8,8 @@ Read before building anything:
 - `docs/DECISIONS.md` — architecture decisions and what we deliberately deferred.
 - `docs/ROADMAP.md` — phased build order and the current milestone.
 - `docs/PHASE-1-SPEC.md` — the concrete spec for what is being built right now.
+- `docs/M1-DESIGN.md` — the reviewed design for the current milestone. Binding unless an
+  ADR supersedes it.
 - `docs/HOSTILE.md` — the growing attack list. Every new verb is walked against it.
 - `docs/DEPLOY.md` — deployment status (nothing is deployed; see ADR-017).
 
@@ -84,6 +86,12 @@ the linked ADRs — read those before proposing an exception.
   what keeps `claim_stipend` from serializing the whole world. (ADR-013)
 - **Never call `time.Now()` outside `internal/kernel/clock`.** The clock has a rate
   multiplier so simulations run at 100×. (ADR-014)
+- **Pick the right time base.** `clk.Now()` is world time — what a citizen experiences:
+  event timestamps, cooldowns, decay, world days. `clk.Real()` is real time — what
+  protects the process: rate limits, expiry, retention, `Retry-After`. A rate limit in
+  world time is a dilation-scaled DoS knob; at 100× a 30/min limit becomes 3000/min.
+  Physics that should scale with the simulation is a *cooldown*, never a rate limit.
+  (ADR-018)
 - **`worldd` stays stateless.** Anything periodic runs behind `pg_try_advisory_lock` so
   only one replica ticks. (ADR-011)
 - **No mutation path but `POST /v1/agents/me/actions`.** That endpoint is the Phase 6

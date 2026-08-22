@@ -28,6 +28,26 @@ const (
 	// different: pick another name rather than fix the request.
 	NameTaken Code = "name_taken"
 
+	// Unauthenticated is "I do not know who you are", as opposed to Forbidden's
+	// "I know who you are and the answer is no". Collapsing the two makes a
+	// revoked key and a refused action indistinguishable, so a bot loops forever
+	// against a dead credential instead of asking its owner for a new one.
+	Unauthenticated Code = "unauthenticated"
+
+	// InsufficientScope is Forbidden with a remedy: the credential is valid but
+	// was not issued the capability. Distinct because the fix is to mint a wider
+	// key, not to stop trying.
+	InsufficientScope Code = "insufficient_scope"
+
+	// IdempotencyInProgress means a request with this key is still running.
+	// Retry the same key; do not generate a new one.
+	IdempotencyInProgress Code = "idempotency_in_progress"
+
+	// Busy is server saturation. Unlike RateLimited it is not the caller's
+	// fault, and a well-behaved agent must not respond by permanently reducing
+	// its own budget for something that was never about it.
+	Busy Code = "busy"
+
 	// Internal is never the agent's fault and never carries detail — an error
 	// message is an information leak to a caller assumed hostile (invariant #6).
 	Internal Code = "internal"

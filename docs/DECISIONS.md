@@ -447,3 +447,86 @@ once. That is a real trade, made deliberately.
 
 **Revisit when:** the world is worth watching continuously. Realistically that is once M2
 closes the earn → buy → consume loop and there is something to observe between sessions.
+
+---
+
+## ADR-018 — Two time bases, and a world clock that outlives the process
+
+**Amends [ADR-014](#adr-014--injectable-clock-with-a-time-dilation-factor)**, which
+established the injectable clock but got two things wrong by omission. Found by the
+adversarial design review recorded in [M1-DESIGN.md](M1-DESIGN.md), then corrected twice
+more while implementing it.
+
+### The bug ADR-014 shipped
+
+`clock.New(rate)` anchored the dilated clock to `time.Now()` at process start. At any rate
+other than 1, world time therefore **jumped backwards on every restart** by however far the
+world had run. A world at rate 100 that had been up an hour was a hundred world-hours old;
+restart it and it was an hour old again.
+
+That is not cosmetic. Events already committed carry world timestamps, so they land in the
+world's future; ULIDs stop sorting in world order because they are stamped from the same
+clock; and every cooldown, decay and expiry measured in world time is computed against a
+clock that has moved backwards. Measured on the running stack: **a restart at rate 100 moved
+world time back 37 minutes.**
+
+### Decision, in three parts
+
+**1. Two time bases, split by purpose.** *World time* is what a citizen experiences: event
+timestamps, cooldowns, energy decay, world-day numbering. *Real time* is what protects the
+process: rate-limit meters, credential expiry, retention cutoffs, `Retry-After`. `Real()`
+joins the `Clock` interface so that nothing needing real time has to reach for `time.Now()`
+and break ADR-014's one rule.
+
+The split is not tidiness. **A rate limiter measured in world time is a dilation-scaled
+denial-of-service knob** — at 100×, "30 actions per minute" silently becomes 3000 — so
+dilation must never be reachable from anything whose job is to bound cost. Physics that
+*should* scale with the simulation is expressed as a cooldown in world time; never as a rate
+limit.
+
+**2. The anchor is durable, and the world freezes while its engine is off.** Migration
+`000002` adds a one-row `world` table holding genesis, the anchor, the rate and a heartbeat.
+On boot, world time re-anchors to the last heartbeat rather than to now: it resumes where it
+stopped instead of racing forward across the outage. A weekend of downtime costs one
+heartbeat interval of drift instead of starving every citizen the moment the process returns.
+
+**3. The heartbeat is paced in world time, and floored by the event log.** Two corrections
+the design review did not anticipate, both found by testing the running stack rather than by
+reading the code:
+
+- **A fixed real interval is wrong.** Thirty real seconds sounds prudent; at rate 100 it is
+  fifty world-minutes of potential loss, and at 1000 it is most of a world day. The interval
+  is therefore chosen in world time (5 world-minutes) and converted to real, clamped to
+  [1s, 30s].
+- **The heartbeat alone still permits a rewind**, and *any* rewind breaks the log: events
+  committed between the last checkpoint and an unclean exit sit above the resumed clock. So
+  boot also floors world time at the newest event's timestamp — `ORDER BY seq DESC LIMIT 1`,
+  one index lookup, and correct precisely because seq order is commit order ([ADR-012](#adr-012--the-event-sequence-must-be-commit-ordered)).
+  Verified under `SIGKILL` at rate 100: world time resumes above the newest event.
+
+**Corollary, learned the hard way:** `Load` returns an anchored clock **always**, including
+at rate 1. Short-circuiting to a wall clock there looks free and is not — a world that has
+run fast is hours ahead, and dropping the anchor snaps it back the moment someone sets the
+rate to 1. It also stops downtime from freezing the world. The arithmetic saved is one
+multiply.
+
+**Where the final checkpoint lives matters.** It runs in `cmd/worldd`'s shutdown path, after
+requests drain and before the pool closes — not in the heartbeat goroutine. Cancelling the
+context wakes both at the same instant, and the goroutine loses the race against
+`database.Close()` often enough that the world rewound on the next boot. That was the
+observed 37-minute regression, still present after the anchor was added.
+
+### Why not the alternatives
+
+Anchoring to genesis and multiplying total elapsed time would rescale all of history
+retroactively on any rate change. Storing world time on every event write and reading the
+max on each call puts a query in the hot path of the most-called function in the system.
+Refusing to support restarts at rate ≠ 1 would make ADR-014's simulation ability unusable in
+exactly the long-running case it exists for.
+
+### Revisit when
+
+Multiple `worldd` replicas run concurrently. The boot re-anchor takes an advisory lock and
+the heartbeat a try-lock, so replicas are safe today, but nothing yet stops two replicas
+booting at different configured rates and disagreeing — an operational hazard rather than a
+correctness one, and one for whenever replicas actually arrive.

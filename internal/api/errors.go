@@ -20,28 +20,48 @@ type failureError struct {
 	Message string    `json:"message"`
 }
 
-// statusFor maps a world error code to HTTP.
+// statusByCode maps every world error code to HTTP.
 //
-// The code is the contract agents branch on; the status exists so that
-// ordinary HTTP tooling behaves sensibly. Where they disagree, the code wins.
+// The code is the contract agents branch on; the status exists so ordinary HTTP
+// tooling behaves sensibly. Where they disagree, the code wins.
+//
+// This is an exhaustive table rather than a switch with a default, and the
+// difference matters: a `default: 422` means the next code someone adds ships
+// silently with the wrong status — a new `unauthenticated` would have arrived as
+// a 422, which no HTTP client on earth treats as "your credential is dead".
+// TestEveryCodeHasAStatus fails the build if an entry is missing.
+var statusByCode = map[werr.Code]int{
+	// The request was well-formed; the world refused it.
+	werr.InvalidParams:     http.StatusUnprocessableEntity,
+	werr.NameTaken:         http.StatusUnprocessableEntity,
+	werr.InsufficientFunds: http.StatusUnprocessableEntity,
+	werr.CooldownActive:    http.StatusUnprocessableEntity,
+	werr.CapacityFull:      http.StatusUnprocessableEntity,
+	werr.Incapacitated:     http.StatusUnprocessableEntity,
+
+	werr.NotFound:          http.StatusNotFound,
+	werr.Unauthenticated:   http.StatusUnauthorized,
+	werr.Forbidden:         http.StatusForbidden,
+	werr.InsufficientScope: http.StatusForbidden,
+	werr.RateLimited:       http.StatusTooManyRequests,
+
+	// Both mean "this key is busy or this request collided" — retry semantics,
+	// not a refusal.
+	werr.IdempotencyConflict:   http.StatusConflict,
+	werr.IdempotencyInProgress: http.StatusConflict,
+
+	// Saturation is ours, not the caller's.
+	werr.Busy:     http.StatusServiceUnavailable,
+	werr.Internal: http.StatusInternalServerError,
+}
+
 func statusFor(code werr.Code) int {
-	switch code {
-	case werr.NotFound:
-		return http.StatusNotFound
-	case werr.Forbidden:
-		return http.StatusForbidden
-	case werr.RateLimited:
-		return http.StatusTooManyRequests
-	case werr.IdempotencyConflict:
-		return http.StatusConflict
-	case werr.Internal:
-		return http.StatusInternalServerError
-	default:
-		// invalid_params, name_taken, insufficient_funds, cooldown_active,
-		// capacity_full, incapacitated: the request was well-formed but the
-		// world refused it.
-		return http.StatusUnprocessableEntity
+	if s, ok := statusByCode[code]; ok {
+		return s
 	}
+	// Unreachable while the test passes. 500 rather than 422, because an
+	// unmapped code is our bug, not the agent's.
+	return http.StatusInternalServerError
 }
 
 // fail writes the error envelope and logs the rejection.

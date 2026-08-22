@@ -13,15 +13,16 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mistyuk/worldzero/internal/api"
-	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
+	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 )
 
 // version is stamped at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)"
@@ -60,11 +61,24 @@ func run() error {
 	}
 	defer database.Close()
 
-	// The world's only source of time (ADR-014).
-	clk, err := clock.New(cfg.ClockRate)
+	// The world's only source of time (ADR-014). The anchor is persisted, so
+	// world time survives a restart instead of jumping back to process start.
+	clk, worldState, err := worldclock.Load(ctx, database.Pool(), cfg.ClockRate, time.Now().UTC())
 	if err != nil {
-		return err
+		return fmt.Errorf("world clock: %w", err)
 	}
+	log.Info("world clock",
+		"genesis", worldState.GenesisAt,
+		"world_time", clk.Now(),
+		"rate", clk.Rate(),
+		"day", worldclock.Day(worldState, clk.Now()),
+	)
+
+	// Checkpoint world time so the next boot resumes where this one stopped.
+	// The interval is derived from the rate: what matters is bounding lost
+	// WORLD time, and a fixed real interval loses more of it the faster the
+	// world runs.
+	go worldclock.Heartbeat(ctx, database.Pool(), clk, worldclock.Interval(clk.Rate()))
 
 	gen := ids.NewGenerator(clk)
 	appender := events.NewAppender(clk, gen)
@@ -73,8 +87,14 @@ func run() error {
 		DB:       database,
 		Clock:    clk,
 		Identity: identity.NewService(clk, gen, appender),
+		World:    worldState,
 		Logger:   log,
 		Version:  version,
+
+		// Empty means trust nobody, which is correct for a direct connection.
+		// Set WORLDD_TRUSTED_PROXIES to the real CIDR when a reverse proxy
+		// terminates TLS in front of worldd.
+		TrustedProxies: cfg.TrustedProxies,
 	})
 
 	srv := &http.Server{
@@ -115,16 +135,32 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}
+
+	// Checkpoint AFTER requests have drained and BEFORE the pool closes.
+	//
+	// Doing this from the heartbeat goroutine instead loses the race: cancelling
+	// the context wakes that goroutine and this function at the same moment, and
+	// this one returns into `defer database.Close()` while the goroutine is
+	// still trying to write. The final checkpoint then silently fails and the
+	// world rewinds on the next boot — which is exactly what a live restart at
+	// rate 100 did before this moved here.
+	if err := worldclock.Checkpoint(context.Background(), database.Pool(), clk); err != nil {
+		log.Error("final world clock checkpoint failed", "error", err)
+	} else {
+		log.Info("world clock checkpointed", "world_time", clk.Now())
+	}
+
 	log.Info("stopped cleanly")
 	return nil
 }
 
 type config struct {
-	Addr        string
-	DatabaseURL string
-	ClockRate   float64
-	MaxConns    int32
-	LogLevel    slog.Level
+	Addr           string
+	DatabaseURL    string
+	ClockRate      float64
+	MaxConns       int32
+	LogLevel       slog.Level
+	TrustedProxies []string
 }
 
 func loadConfig() (config, error) {
@@ -147,6 +183,16 @@ func loadConfig() (config, error) {
 			return cfg, fmt.Errorf("WORLD_CLOCK_RATE must be a number: %w", err)
 		}
 		cfg.ClockRate = rate
+	}
+
+	// Comma-separated CIDRs. Unset means trust nobody: see api.NewRouter for why
+	// the framework default is dangerous.
+	if raw := env("WORLDD_TRUSTED_PROXIES", ""); raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				cfg.TrustedProxies = append(cfg.TrustedProxies, p)
+			}
+		}
 	}
 
 	if raw := env("WORLDD_MAX_CONNS", ""); raw != "" {

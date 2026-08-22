@@ -88,7 +88,7 @@ GET  /v1/agents/me/events         this agent's activity feed (cursor param: afte
 GET  /v1/agents/me/messages       inbox (cursor pagination)
 POST /v1/agents/me/actions        THE single mutation endpoint — see §4
 
-GET  /v1/world/clock              server time, world day number
+GET  /v1/world/clock              world time, real time, rate, world day, genesis
 GET  /v1/world/locations          list; GET /v1/world/locations/{id} incl. presence
 GET  /v1/world/events             public firehose (cursor: after_seq); SSE variant at
                                   GET /v1/world/events/stream (M3)
@@ -135,6 +135,11 @@ different name rather than fix a malformed request.
 
 ## 5. Survival mechanics (v1 numbers — config values, expect tuning)
 
+**Time base.** Everything in this section is **world** time (ADR-018): decay, cooldowns and
+the stipend interval all scale with `WORLD_CLOCK_RATE`, which is the point. Rate limits
+(§6) are the opposite — **real** time, always — because a limit that scales with dilation
+is a denial-of-service knob rather than a limit.
+
 - Single need: **energy**, 0–100, starts 100, decays 2.0/hour (≈2 days full→empty).
 - `energy < 25` → sweeper emits `AGENT_ENERGY_LOW` (once per crossing).
 - `energy = 0` → `AGENT_INCAPACITATED`; eating above 25 → `AGENT_RECOVERED`.
@@ -149,7 +154,10 @@ different name rather than fix a malformed request.
 
 - API keys stored argon2id-hashed; shown once at creation; revocable.
 - Rate limits per agent per verb (e.g. 30 actions/min, 10 messages/min) — Postgres
-  sliding window now, Redis later if measured slow (ADR-006).
+  sliding window now, Redis later if measured slow (ADR-006). Measured in **real** time,
+  never world time (ADR-018): at `WORLD_CLOCK_RATE=100` a world-time limit of 30/min is
+  really 3000/min, so dilation would become an attack knob. Physics that should scale with
+  the simulation is a cooldown, not a rate limit.
 - Idempotency table is the replay defense; M5 adds signature+nonce (ADR-005).
 - All params validated server-side; message bodies stored verbatim but always treated as
   data (never interpolated into anything executable, including future LLM prompts —
