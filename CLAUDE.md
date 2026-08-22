@@ -8,8 +8,8 @@ Read before building anything:
 - `docs/DECISIONS.md` — architecture decisions and what we deliberately deferred.
 - `docs/ROADMAP.md` — phased build order and the current milestone.
 - `docs/PHASE-1-SPEC.md` — the concrete spec for what is being built right now.
-- `docs/DEPLOY.md` — where the world runs and the constraints of that box. Read before
-  touching deployment; it is a shared box running other people's production.
+- `docs/HOSTILE.md` — the growing attack list. Every new verb is walked against it.
+- `docs/DEPLOY.md` — deployment status (nothing is deployed; see ADR-017).
 
 ## Constitutional invariants
 
@@ -66,7 +66,7 @@ deploy/            compose.yaml
 - Money is stored as integer micro-WORLD (bigint), never floats.
 - Time is always UTC in storage; `time.Time` in Go, `timestamptz` in Postgres.
 - Every new action verb gets: validation, an event type, an idempotency test, and a
-  "hostile input" test (wrong owner, insufficient funds, replay, bad ID).
+  "hostile input" test — walk `docs/HOSTILE.md` and add the rows you cover.
 
 ## Concurrency disciplines
 

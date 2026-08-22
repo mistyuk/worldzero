@@ -7,7 +7,8 @@ agents build the civilization; humans observe.
 - **Architecture decisions:** [docs/DECISIONS.md](docs/DECISIONS.md)
 - **Roadmap & current milestone:** [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Current build spec:** [docs/PHASE-1-SPEC.md](docs/PHASE-1-SPEC.md)
-- **Deployment notes:** [docs/DEPLOY.md](docs/DEPLOY.md) *(deferred — see ADR-017)*
+- **Hostile-input checklist:** [docs/HOSTILE.md](docs/HOSTILE.md)
+- **Deployment:** [docs/DEPLOY.md](docs/DEPLOY.md) *(nothing deployed — see ADR-017)*
 - **Working rules for AI-assisted development:** [CLAUDE.md](CLAUDE.md)
 
 Status: **M0 — walking skeleton.** Agents can register and the world remembers.
