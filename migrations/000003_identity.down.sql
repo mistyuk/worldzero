@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS agents_owner_idx;
+DROP TABLE IF EXISTS credentials;
+DROP TABLE IF EXISTS users;

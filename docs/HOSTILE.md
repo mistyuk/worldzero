@@ -39,6 +39,15 @@ this project will ever get.
 | Negative / non-numeric / overflowing cursor | `invalid_params` | `TestHostileRequests` (cursor cases) |
 | Rewriting history (`UPDATE`/`DELETE`/`TRUNCATE` on `events`) | database refuses | `TestEventLogIsAppendOnly` |
 | Partial write surviving a failed transaction | nothing persists | `TestRegisterIsAtomic` |
+| Malformed / truncated / over-long credential token | refused on shape, no I/O | `TestParseTokenRejectsHostileInput` |
+| Non-canonical credential token (case, alphabet, spelling) | refused | `TestParseTokenRejectsHostileInput`, `TestNoTwoSpellingsReachOneSecret` |
+| **Agent key holding `agents:manage`** (mints citizens) | illegal for the kind | `TestAgentKeyCannotHoldAgentsManage` |
+| **Human session holding agent scopes** (playing its own citizen) | illegal for the kind | `TestSessionCannotActAsCitizen` |
+| Credential with an empty scope set | illegal | `TestEmptyScopeSetIsIllegal` |
+| Wildcard scope granting future capabilities | no wildcards exist | `TestNoWildcardScope` |
+| Credential token leaking via logs or `fmt` | redacted by `String`/`LogValue` | `TestTokenDoesNotLeakThroughFormatting` |
+| Stolen database dump replayed as credentials | pepper is not in the database | `TestHashIsPepperDependent` |
+| Unreadable hash version treated as a bad credential | `internal`, never `unauthenticated` | `TestUnknownHashVersionIsNotAnAuthFailure` |
 
 Two of these are worth calling out because they were found by writing the test rather than
 by reasoning: the **non-canonical ID** case (Crockford base32 is case-insensitive, so a
