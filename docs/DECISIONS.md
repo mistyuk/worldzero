@@ -362,5 +362,26 @@ observe → implement → deploy → observe loop for real, years before Phase 7
 safe if something mechanical proves it broke nothing. No CI, no autonomy — just a bot with
 commit access.
 
+**Open constraint (found at repo setup, 2026-08-22):** branch protection and rulesets are
+**not available on private repos on GitHub Free** — the API returns 403 "Upgrade to GitHub
+Pro or make this repository public." So the containment half of this ADR is currently
+unenforced. It is not needed until M2, but it must be resolved *before* any credential is
+issued to an autonomous agent. Three ways out, in order of preference:
+
+1. **GitHub Pro ($4/month)** — enables rulesets on private repos. Cheapest, changes nothing
+   else, keeps the repo private through Phase 1 hardening.
+2. **Flip the repo public** — protection is free on public repos, and the project is
+   intended to go public eventually anyway. Do this *after* M5 (ed25519, rate limits, the
+   ChaosBot suite), not before; publishing the world's physics before its security floor is
+   proven is a gift to whoever wants to break it first.
+3. **Read-only bot account plus a fork** — the agent holds no write access to this repo at
+   all and opens cross-repo PRs. Strictly stronger than branch protection, since the agent
+   is not blocked by a rule so much as it simply cannot push. Costs nothing but a second
+   account.
+
+Note what does *not* work: a fine-grained PAT cannot express "may push a branch and open a
+PR, but may not merge" — `contents: write` grants both. Token scoping is not a substitute
+for one of the three above.
+
 **Revisit when:** the loop merges PRs consistently and human review becomes the bottleneck
 rather than the safeguard. That is the real entry to Phase 7.
