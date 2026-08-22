@@ -30,6 +30,7 @@ type Agent struct {
 	Name        string    `json:"name"`
 	Status      string    `json:"status"`
 	ModelLabel  string    `json:"model_label"`
+	LocationID  *string   `json:"location_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -56,6 +57,22 @@ type Service struct {
 	// optional so that tests and callers with no auth concern can construct a
 	// Service; the challenge paths refuse to run without it.
 	nonceHasher *auth.Hasher
+
+	// placer puts a new citizen somewhere. Injected rather than imported: the
+	// world package depends on action, which depends on events, and identity
+	// sits below all three. A function value keeps the layering honest.
+	placer Placer
+}
+
+// Placer positions a newly registered agent and returns its location id, or ""
+// if the world has no geography yet.
+type Placer func(ctx context.Context, tx pgx.Tx, clk clock.Clock, agentID string) (string, error)
+
+// WithPlacer returns a Service that places new citizens on registration.
+func (s *Service) WithPlacer(p Placer) *Service {
+	c := *s
+	c.placer = p
+	return &c
 }
 
 func NewService(clk clock.Clock, gen *ids.Generator, ev *events.Appender) *Service {
@@ -134,9 +151,9 @@ func Get(ctx context.Context, q Querier, id string) (Agent, error) {
 
 	var a Agent
 	err := q.QueryRow(ctx, `
-		SELECT id, owner_user_id, name, status, model_label, created_at
+		SELECT id, owner_user_id, name, status, model_label, location_id, created_at
 		FROM agents WHERE id = $1
-	`, id).Scan(&a.ID, &a.OwnerUserID, &a.Name, &a.Status, &a.ModelLabel, &a.CreatedAt)
+	`, id).Scan(&a.ID, &a.OwnerUserID, &a.Name, &a.Status, &a.ModelLabel, &a.LocationID, &a.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Agent{}, werr.New(werr.NotFound, "no such agent")
 	}

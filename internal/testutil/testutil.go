@@ -93,3 +93,27 @@ func Name(t *testing.T) string {
 	}
 	return "bot-" + hex.EncodeToString(b)
 }
+
+// VacateLocation empties a location and resets its headcount.
+//
+// Unlike the event log, locations are not append-only, and capacity is a finite
+// shared resource — so a test that fills a room leaves it full for every test
+// and every run afterwards. This is the one piece of fixture surgery the shared
+// test database needs.
+//
+// It deliberately does NOT touch events: the history of those moves happened and
+// stays. Only the current state is reset.
+func VacateLocation(t *testing.T, d *db.DB, locationID string) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := d.Pool().Exec(ctx,
+		`UPDATE agents SET location_id = NULL, location_since = NULL WHERE location_id = $1`,
+		locationID); err != nil {
+		t.Fatalf("vacate agents: %v", err)
+	}
+	if _, err := d.Pool().Exec(ctx,
+		`UPDATE locations SET occupancy = 0 WHERE id = $1`, locationID); err != nil {
+		t.Fatalf("reset occupancy: %v", err)
+	}
+}

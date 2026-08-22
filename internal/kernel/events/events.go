@@ -45,6 +45,41 @@ const (
 	TypeLocationSay = "LOCATION_SAY"
 )
 
+// known is every event type the world can emit.
+//
+// It exists so that a verb declaring an event it will never emit — or one that
+// does not exist — fails at wiring time rather than at three in the morning when
+// an agent finally calls it. internal/action.Register checks against this.
+var known = map[string]bool{
+	TypeAgentRegistered:    true,
+	TypeAgentClaimed:       true,
+	TypeAgentMoved:         true,
+	TypeAgentSuspended:     true,
+	TypeAgentEnergyLow:     true,
+	TypeAgentIncapacitated: true,
+	TypeAgentRecovered:     true,
+	TypeTransferExecuted:   true,
+	TypeStipendClaimed:     true,
+	TypeListingCreated:     true,
+	TypeListingPurchased:   true,
+	TypeItemConsumed:       true,
+	TypeMessageSent:        true,
+	TypeLocationSay:        true,
+}
+
+// Known reports whether an event type is one the world declares.
+func Known(t string) bool { return known[t] }
+
+// All lists every declared event type, so documentation and tests can be checked
+// against reality instead of against someone's memory.
+func All() []string {
+	out := make([]string, 0, len(known))
+	for t := range known {
+		out = append(out, t)
+	}
+	return out
+}
+
 // seqLock is the advisory lock that forces seq order to equal commit order.
 //
 // The value is arbitrary but must never collide with another advisory lock in
@@ -190,6 +225,86 @@ func Since(ctx context.Context, q Querier, afterSeq int64, limit int) ([]Event, 
 		var e Event
 		if err := rows.Scan(&e.Seq, &e.ID, &e.Type, &e.AgentID, &e.SubjectIDs, &e.Payload, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// Nearby returns recent events at a location, newest first.
+//
+// It reads through subject_ids, which is a jsonb column with a gin index — but
+// gin cannot serve ORDER BY seq DESC LIMIT n, so this filters on the generated
+// location columns instead (migration 000006) and lets the btree do the
+// ordering. The distinction matters: without it this query, the most frequent in
+// the world, degenerates into a sort of every matching row.
+//
+// Deduplicated per (agent, type). Without that, one agent moving repeatedly —
+// and each move lands in TWO locations' feeds — can fill every observer's
+// twenty-slot window and blind the world's primary perception channel, entirely
+// within the rules and with nothing logged.
+func Nearby(ctx context.Context, q Querier, locationID string, limit int) ([]Event, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := q.Query(ctx, `
+		SELECT DISTINCT ON (agent_id, type) seq, id, type, agent_id, subject_ids, payload, created_at
+		FROM events
+		WHERE event_location_id = $1 OR event_from_location_id = $1
+		ORDER BY agent_id, type, seq DESC
+		LIMIT $2
+	`, locationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read nearby events: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Event, 0, limit)
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.ID, &e.Type, &e.AgentID, &e.SubjectIDs, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan nearby event: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Newest first, which is the order an agent reads a room in.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+// ForSubject returns events an agent is a SUBJECT of, oldest first.
+//
+// Subject, not actor. events.agent_id names who acted, so an agent receiving a
+// transfer is not the actor — and in an actor-keyed feed would never see its own
+// payment, which is the single event it most needs. subject_ids is where "this
+// event is about you" lives.
+func ForSubject(ctx context.Context, q Querier, agentID string, afterSeq int64, limit int) ([]Event, error) {
+	if limit <= 0 || limit > MaxPageSize {
+		limit = 50
+	}
+	rows, err := q.Query(ctx, `
+		SELECT seq, id, type, agent_id, subject_ids, payload, created_at
+		FROM events
+		WHERE seq > $1
+		  AND (agent_id = $2 OR subject_ids @> jsonb_build_object('agent', $2::text))
+		ORDER BY seq ASC
+		LIMIT $3
+	`, afterSeq, agentID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read agent feed: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Event, 0, limit)
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.ID, &e.Type, &e.AgentID, &e.SubjectIDs, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan agent feed event: %w", err)
 		}
 		out = append(out, e)
 	}

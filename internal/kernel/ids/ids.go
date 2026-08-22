@@ -39,6 +39,7 @@ const (
 	Listing   = "lst"
 	Message   = "msg"
 	Challenge = "chl"
+	Action    = "act"
 )
 
 const sep = "_"

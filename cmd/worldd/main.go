@@ -17,6 +17,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mistyuk/worldzero/internal/action"
 	"github.com/mistyuk/worldzero/internal/api"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
@@ -25,6 +28,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
+	"github.com/mistyuk/worldzero/internal/world"
 )
 
 // version is stamped at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)"
@@ -94,14 +98,41 @@ func run() error {
 			"anyone with the source can forge credentials against this database")
 	}
 
+	// Genesis geography, once. Idempotent: a world that already has places keeps
+	// the ones it has.
+	if err := database.Tx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		n, err := world.Seed(ctx, tx, clk, gen)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			log.Info("seeded the world", "locations", n)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("seed world: %w", err)
+	}
+
+	// One registration site for verbs, shared with the conformance suite so a
+	// verb cannot be live in production and untested in CI.
+	registry := action.NewRegistry()
+	world.Verbs(registry, clk, gen)
+	log.Info("registered actions", "verbs", registry.Types())
+
+	dispatcher := action.NewDispatcher(registry, database, appender, action.NewLimiter(), clk, gen)
+
 	router := api.NewRouter(api.Deps{
-		DB:       database,
-		Clock:    clk,
-		Identity: identity.NewService(clk, gen, appender).WithHasher(hasher),
+		DB:    database,
+		Clock: clk,
+		Identity: identity.NewService(clk, gen, appender).
+			WithHasher(hasher).
+			WithPlacer(world.PlaceNewAgent),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
 		Hasher:   hasher,
 		IDs:      gen,
+		Actions:  dispatcher,
+		Registry: registry,
 		World:    worldState,
 		Logger:   log,
 		Version:  version,

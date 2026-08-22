@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mistyuk/worldzero/internal/action"
 	"github.com/mistyuk/worldzero/internal/api"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
@@ -20,6 +23,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
 	"github.com/mistyuk/worldzero/internal/testutil"
+	"github.com/mistyuk/worldzero/internal/world"
 )
 
 func newServer(t *testing.T) http.Handler {
@@ -34,13 +38,32 @@ func newServer(t *testing.T) http.Handler {
 		t.Fatalf("hasher: %v", err)
 	}
 
+	appender := events.NewAppender(clk, gen)
+
+	// Geography, once per test database. Seed is idempotent.
+	if err := d.Tx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		_, err := world.Seed(ctx, tx, clk, gen)
+		return err
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// The SAME registration site production uses, so a verb cannot be live and
+	// untested at the same time.
+	registry := action.NewRegistry()
+	world.Verbs(registry, clk, gen)
+
 	return api.NewRouter(api.Deps{
-		DB:       d,
-		Clock:    clk,
-		Identity: identity.NewService(clk, gen, events.NewAppender(clk, gen)).WithHasher(hasher),
+		DB:    d,
+		Clock: clk,
+		Identity: identity.NewService(clk, gen, appender).
+			WithHasher(hasher).
+			WithPlacer(world.PlaceNewAgent),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
 		Hasher:   hasher,
+		Actions:  action.NewDispatcher(registry, d, appender, action.NewLimiter(), clk, gen),
+		Registry: registry,
 		IDs:      gen,
 		// Discard: these tests deliberately provoke rejections, and the audit
 		// log for them is not what is under test here.

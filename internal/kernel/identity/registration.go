@@ -107,6 +107,18 @@ func (s *Service) SelfRegister(ctx context.Context, tx pgx.Tx, hasher *auth.Hash
 		return Registration{}, werr.Wrap(werr.Internal, "could not register agent", err)
 	}
 
+	// Put the new citizen somewhere. A world where you exist but are nowhere is
+	// a world where nobody can see you and you cannot be spoken to.
+	if s.placer != nil {
+		locID, err := s.placer(ctx, tx, s.clk, agent.ID)
+		if err != nil {
+			return Registration{}, err
+		}
+		if locID != "" {
+			agent.LocationID = &locID
+		}
+	}
+
 	tok, err := auth.Mint(s.gen, auth.KindAgentKey)
 	if err != nil {
 		return Registration{}, werr.Wrap(werr.Internal, "could not issue credential", err)

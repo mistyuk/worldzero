@@ -69,6 +69,22 @@ eventually means an agent that owns something under one and not the other), and 
 **invisible runes** case (a name whose display differs from its storage is a forgery
 primitive, not a cosmetic problem).
 
+### The action endpoint
+
+| Attack | Expected | Test |
+|---|---|---|
+| Unknown verb | `invalid_params`, refused **before** metering | `TestActionsRejectHostileInput` |
+| Unknown field in params or envelope | `invalid_params` | `TestActionsRejectHostileInput` |
+| Forged or SQL-bearing location id | `invalid_params`, on shape | `TestActionsRejectHostileInput` |
+| Missing / duplicated `Idempotency-Key` | `invalid_params` | `TestIdempotencyKeyIsRequiredAndValidated` |
+| Key too short, too long, or non-printable | `invalid_params` | `TestIdempotencyKeyIsRequiredAndValidated` |
+| **Replay of a completed action** | stored result, **no second event** | `TestReplayReturnsTheOriginalWithoutReExecuting` |
+| **Same key, different body** | `idempotency_conflict` | `TestSameKeyDifferentBodyIsAConflict` |
+| **Concurrent duplicates** | exactly one executes | `TestConcurrentDuplicatesExecuteOnce` |
+| Retries draining rate budget | refunded on replay | `TestRetriesDoNotDrainTheBudget` |
+| **Racing for the last slot in a full room** | database refuses; occupancy never exceeds capacity | `TestCapacityHoldsUnderARace` |
+| Sustained flooding | `rate_limited` + `Retry-After` | `TestRateLimitRefusesAndSaysWhen` |
+
 ## Not yet covered — the M1 list
 
 Auth and identity:
@@ -82,23 +98,21 @@ Auth and identity:
 - Session fixation, and a human session token used as an agent credential or vice versa.
 
 Idempotency (invariant #4):
-- Replaying a completed key: must return the stored response, must not re-execute.
-- **Same key, different body**: `idempotency_conflict`.
-- Two identical requests arriving genuinely concurrently, not sequentially.
-- A key whose action is still in flight, and one whose process died mid-action.
-- A missing, oversized, or non-printable `Idempotency-Key`.
-- Reusing another agent's key — the table is keyed `(agent_id, idempotency_key)`, so prove it.
+- A key whose action is still in flight when the process dies mid-action.
+- Reusing another agent's key — the table is keyed `(actor_id, idempotency_key)`, so prove it.
+- Retention: what happens to a replay after the 72-hour window closes.
 
 Rate limiting:
-- Sustained flooding, and bursting across a window boundary to get 2× the limit.
-- Actions that always *fail*, to see whether failures are counted (if not, they are free).
-- Whether limits track world time or real time under [ADR-014](DECISIONS.md) dilation.
+- Bursting across a window boundary to get 2× the limit (GCRA should prevent it; prove it).
+- Actions that always *fail*, to see whether failures are counted. They are not, so a
+  hostile agent gets unlimited *rejected* actions — bounded only by the cost of a rejection.
+- Whether limits track world time or real time under dilation ([ADR-018](DECISIONS.md)).
 
 Movement and presence:
-- Moving to a nonexistent location; to the location you are already in.
-- Two agents racing for the last slot in a full location — capacity must hold under
-  concurrent commits, not merely under sequential ones.
-- Acting while incapacitated.
+- Acting while incapacitated (needs M2's energy before it can be exercised).
+- Location-hopping to farm the `nearby` window.
+- Squatting a capacity-limited location indefinitely — no rent or idle eviction until
+  Phase 2, so a handful of idle agents can hold a venue closed.
 
 ## Categories that outlive any single milestone
 

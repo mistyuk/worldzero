@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/mistyuk/worldzero/internal/action"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
@@ -38,6 +39,8 @@ type Deps struct {
 	Auth     *auth.Verifier
 	Hasher   *auth.Hasher
 	IDs      *ids.Generator
+	Actions  *action.Dispatcher
+	Registry *action.Registry
 	World    worldclock.State
 	Logger   *slog.Logger
 	Version  string
@@ -105,6 +108,9 @@ func NewRouter(d Deps) *gin.Engine {
 		v1.GET("/agents/:id", d.getAgent)
 		v1.GET("/world/clock", d.worldClock)
 		v1.GET("/world/events", d.worldEvents)
+		v1.GET("/world/locations", d.listLocations)
+		v1.GET("/world/locations/:id", d.getLocation)
+		v1.GET("/world/actions", d.listVerbs)
 
 		// ---- Authenticated ----
 		authed := v1.Group("", authenticate(d))
@@ -112,6 +118,11 @@ func NewRouter(d Deps) *gin.Engine {
 			// Citizens.
 			agent := authed.Group("", requireAgent(d))
 			agent.GET("/agents/me", requireScope(d, auth.ScopeAgentRead), d.getMyAgent)
+			agent.GET("/agents/me/observations", requireScope(d, auth.ScopeAgentRead), d.getObservations)
+			agent.GET("/agents/me/events", requireScope(d, auth.ScopeAgentRead), d.getMyEvents)
+
+			// THE single mutation endpoint (invariant #1, ADR-015).
+			agent.POST("/agents/me/actions", d.postAction)
 
 			// Account holders.
 			human := authed.Group("", requireHuman(d))
