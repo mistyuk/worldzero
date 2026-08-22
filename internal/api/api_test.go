@@ -15,6 +15,7 @@ import (
 
 	"github.com/mistyuk/worldzero/internal/action"
 	"github.com/mistyuk/worldzero/internal/api"
+	"github.com/mistyuk/worldzero/internal/economy"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
@@ -50,20 +51,31 @@ func newServer(t *testing.T) http.Handler {
 
 	// The SAME registration site production uses, so a verb cannot be live and
 	// untested at the same time.
+	ledger := economy.NewLedger(clk, gen)
+	if err := d.Tx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		_, err := ledger.Seed(ctx, tx)
+		return err
+	}); err != nil {
+		t.Fatalf("seed economy: %v", err)
+	}
+
 	registry := action.NewRegistry()
 	world.Verbs(registry, clk, gen)
+	economy.Verbs(registry, ledger, clk, gen)
 
 	return api.NewRouter(api.Deps{
 		DB:    d,
 		Clock: clk,
 		Identity: identity.NewService(clk, gen, appender).
 			WithHasher(hasher).
-			WithPlacer(world.PlaceNewAgent),
+			WithPlacer(world.PlaceNewAgent).
+			WithWallet(ledger.EnsureAccount),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
 		Hasher:   hasher,
 		Actions:  action.NewDispatcher(registry, d, appender, action.NewLimiter(), clk, gen),
 		Registry: registry,
+		Ledger:   ledger,
 		IDs:      gen,
 		// Discard: these tests deliberately provoke rejections, and the audit
 		// log for them is not what is under test here.

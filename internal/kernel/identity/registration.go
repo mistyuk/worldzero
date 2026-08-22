@@ -96,9 +96,14 @@ func (s *Service) SelfRegister(ctx context.Context, tx pgx.Tx, hasher *auth.Hash
 		CreatedAt:  s.clk.Now(), // world time: this is a fact about the world
 	}
 
+	// energy_updated_at starts the decay clock. Without it Energy.At has no
+	// measurement to decay from and every citizen sits at full energy forever —
+	// which switches off the survival pressure the whole phase is built on,
+	// silently (migration 000009).
 	_, err = tx.Exec(ctx, `
-		INSERT INTO agents (id, name, status, model_label, public_key, claim_code_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO agents (id, name, status, model_label, public_key, claim_code_hash,
+		                    created_at, energy_updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 	`, agent.ID, agent.Name, agent.Status, agent.ModelLabel, publicKey, claimHash, agent.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err, "agents_name_key") {
@@ -116,6 +121,12 @@ func (s *Service) SelfRegister(ctx context.Context, tx pgx.Tx, hasher *auth.Hash
 		}
 		if locID != "" {
 			agent.LocationID = &locID
+		}
+	}
+
+	if s.wallet != nil {
+		if err := s.wallet(ctx, tx, agent.ID); err != nil {
+			return Registration{}, err
 		}
 	}
 

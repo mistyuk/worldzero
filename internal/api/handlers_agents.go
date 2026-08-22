@@ -203,11 +203,17 @@ func (d Deps) getMyAgent(c *gin.Context) {
 		return
 	}
 
-	now := d.Clock.Now()
+	wallet, err := d.loadWallet(c, p.AgentID)
+	if err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"agent":      agent,
+		"wallet":     wallet,
 		"scopes":     p.Scopes,
-		"world_time": now,
+		"world_time": d.Clock.Now(),
 		"real_time":  d.Clock.Real(),
 	})
 }

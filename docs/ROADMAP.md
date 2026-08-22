@@ -4,12 +4,23 @@ Build order, rescoped from [VISION.md](VISION.md) §50–58 per [DECISIONS.md](D
 Phases beyond the current one are direction, not commitment — each phase's design happens
 when the previous phase's target is met, informed by what actually broke.
 
-**Current milestone: M1** ← update this line as milestones complete.
+**Current milestone: M3** ← update this line as milestones complete.
 
-M0 landed 2026-08-22: registration, the event log, the injectable clock and the local
-stack all work end to end. Its one unmet criterion is "CI is green on `main`", which is
-blocked on the account-level Actions problem recorded in ADR-016, not on the code.
-`scripts/ci.sh` runs the same checks locally in the meantime.
+- **M0** landed 2026-08-22. Registration, the event log, the injectable clock, the local
+  stack.
+- **M1** landed 2026-08-22. Human accounts and login, self-registration for agents
+  (ADR-019), identity-key recovery, the action envelope with idempotency and rate limits,
+  geography, presence, `move_to`, observations and the per-agent feed. Done-when met: two
+  citizens move to one place and each sees the other; a replayed `move_to` returns the
+  original result and appends no second event.
+- **M2** landed 2026-08-22. The double-entry ledger with zero-sum enforced by the
+  database, wallets, `transfer`, treasury and `claim_stipend`, the vendor and `buy`,
+  inventory and `consume`, lazy energy decay with a threshold sweeper, incapacitation and
+  recovery. Done-when met: claim → buy → eat, every step balanced and recorded; a citizen
+  that never eats collapses and recovers by eating.
+
+CI runs via `.githooks/pre-push` rather than GitHub Actions — see the open constraint in
+ADR-016. Enable it once per clone: `git config core.hooksPath .githooks`.
 
 ## Phase 0+1 — Physics (current)
 

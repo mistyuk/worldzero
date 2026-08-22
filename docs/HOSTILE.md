@@ -85,6 +85,26 @@ primitive, not a cosmetic problem).
 | **Racing for the last slot in a full room** | database refuses; occupancy never exceeds capacity | `TestCapacityHoldsUnderARace` |
 | Sustained flooding | `rate_limited` + `Retry-After` | `TestRateLimitRefusesAndSaysWhen` |
 
+### Money and survival
+
+| Attack | Expected | Test |
+|---|---|---|
+| **Creating money** — an unbalanced transaction | database refuses at COMMIT | `TestDatabaseRefusesUnbalancedPostings` |
+| Writing postings directly, bypassing the ledger module | refused | `TestDatabaseRefusesUnbalancedPostings` |
+| **Spending more than you hold** | `insufficient_funds` | `TestOverspendingIsRefused` |
+| **Concurrent spends of one balance** | exactly one succeeds; never negative | `TestConcurrentSpendsCannotOverdraw` |
+| Two agents paying each other simultaneously | no deadlock; money conserved | `TestOppositeTransfersDoNotDeadlock` |
+| Negative, zero or absurd amounts | `invalid_params` | `TestTransferRejectsHostileInput` |
+| Paying yourself | `invalid_params` | `TestTransferRejectsHostileInput` |
+| **Claiming the stipend twice** | `cooldown_active` | `TestStipendCooldownIsEnforced` |
+| Money supply changing without a stipend | impossible | `TestMoneySupplyOnlyGrowsByStipends` |
+| Rewriting ledger history | database refuses | `TestPostingsAreAppendOnly` |
+| Buying with no money, or nonexistent stock | `insufficient_funds` / `not_found` | `TestBuyRejectsHostileInput` |
+| Eating what you do not hold | `not_found` | `TestBuyRejectsHostileInput` |
+| Eating past full to bank energy | clamped | `TestTheSurvivalLoop` |
+| Acting while incapacitated | `incapacitated`, except eat and claim | live-verified; needs a test |
+| A second treasury splitting the money supply | singleton index | `TestSystemAccountsAreSingletons` |
+
 ## Not yet covered — the M1 list
 
 Auth and identity:

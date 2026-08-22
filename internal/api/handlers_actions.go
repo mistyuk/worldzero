@@ -72,8 +72,15 @@ func (d Deps) getObservations(c *gin.Context) {
 		return
 	}
 
+	wallet, err := d.loadWallet(c, p.AgentID)
+	if err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
 	out := gin.H{
 		"agent":      agent,
+		"wallet":     wallet,
 		"world_time": d.Clock.Now(),
 		"real_time":  d.Clock.Real(),
 		"world_day":  worldclock.Day(d.World, d.Clock.Now()),

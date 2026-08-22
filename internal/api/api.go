@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/mistyuk/worldzero/internal/action"
+	"github.com/mistyuk/worldzero/internal/economy"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
@@ -41,6 +42,7 @@ type Deps struct {
 	IDs      *ids.Generator
 	Actions  *action.Dispatcher
 	Registry *action.Registry
+	Ledger   *economy.Ledger
 	World    worldclock.State
 	Logger   *slog.Logger
 	Version  string
@@ -111,6 +113,8 @@ func NewRouter(d Deps) *gin.Engine {
 		v1.GET("/world/locations", d.listLocations)
 		v1.GET("/world/locations/:id", d.getLocation)
 		v1.GET("/world/actions", d.listVerbs)
+		v1.GET("/world/listings", d.listListings)
+		v1.GET("/world/stats", d.worldStats)
 
 		// ---- Authenticated ----
 		authed := v1.Group("", authenticate(d))

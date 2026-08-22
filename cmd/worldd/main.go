@@ -21,6 +21,7 @@ import (
 
 	"github.com/mistyuk/worldzero/internal/action"
 	"github.com/mistyuk/worldzero/internal/api"
+	"github.com/mistyuk/worldzero/internal/economy"
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
@@ -113,26 +114,53 @@ func run() error {
 		return fmt.Errorf("seed world: %w", err)
 	}
 
+	ledger := economy.NewLedger(clk, gen)
+
+	// The world's own economic fixtures: treasury, vendor, bread, and the
+	// listing that sells it. ADR-007 — without an income and something to spend
+	// it on, Phase 1 has no survival loop and every citizen starves.
+	if err := database.Tx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		seeded, err := ledger.Seed(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if seeded {
+			log.Info("opened the market", "item", economy.BreadSKU,
+				"price", economy.BreadPrice.String())
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("seed economy: %w", err)
+	}
+
 	// One registration site for verbs, shared with the conformance suite so a
 	// verb cannot be live in production and untested in CI.
 	registry := action.NewRegistry()
 	world.Verbs(registry, clk, gen)
+	economy.Verbs(registry, ledger, clk, gen)
 	log.Info("registered actions", "verbs", registry.Types())
 
 	dispatcher := action.NewDispatcher(registry, database, appender, action.NewLimiter(), clk, gen)
+
+	// ADR-008: energy decays lazily and is never written per tick. The sweeper
+	// only materialises threshold CROSSINGS, so the event log records "became
+	// hungry" rather than "is still hungry" once a minute forever.
+	go economy.NewSweeper(database, appender, clk, log).Run(ctx, economy.SweepInterval)
 
 	router := api.NewRouter(api.Deps{
 		DB:    database,
 		Clock: clk,
 		Identity: identity.NewService(clk, gen, appender).
 			WithHasher(hasher).
-			WithPlacer(world.PlaceNewAgent),
+			WithPlacer(world.PlaceNewAgent).
+			WithWallet(ledger.EnsureAccount),
 		Users:    users.NewService(clk, gen),
 		Auth:     auth.NewVerifier(hasher, clk),
 		Hasher:   hasher,
 		IDs:      gen,
 		Actions:  dispatcher,
 		Registry: registry,
+		Ledger:   ledger,
 		World:    worldState,
 		Logger:   log,
 		Version:  version,

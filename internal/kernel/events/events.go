@@ -281,18 +281,23 @@ func Nearby(ctx context.Context, q Querier, locationID string, limit int) ([]Eve
 //
 // Subject, not actor. events.agent_id names who acted, so an agent receiving a
 // transfer is not the actor — and in an actor-keyed feed would never see its own
-// payment, which is the single event it most needs. subject_ids is where "this
-// event is about you" lives.
+// payment, which is the single event it most needs.
+//
+// It reads event_participants rather than searching subject_ids. Matching
+// `subject_ids @> {"agent": id}` looks equivalent and is not: it only inspects
+// the "agent" KEY, so a transfer recording its parties as
+// {"agent": sender, "to_agent": recipient} was invisible to the recipient. That
+// was a real bug, found by writing the test for it (migration 000008).
 func ForSubject(ctx context.Context, q Querier, agentID string, afterSeq int64, limit int) ([]Event, error) {
 	if limit <= 0 || limit > MaxPageSize {
 		limit = 50
 	}
 	rows, err := q.Query(ctx, `
-		SELECT seq, id, type, agent_id, subject_ids, payload, created_at
-		FROM events
-		WHERE seq > $1
-		  AND (agent_id = $2 OR subject_ids @> jsonb_build_object('agent', $2::text))
-		ORDER BY seq ASC
+		SELECT e.seq, e.id, e.type, e.agent_id, e.subject_ids, e.payload, e.created_at
+		FROM event_participants p
+		JOIN events e ON e.seq = p.event_seq
+		WHERE p.agent_id = $2 AND p.event_seq > $1
+		ORDER BY p.event_seq ASC
 		LIMIT $3
 	`, afterSeq, agentID, limit)
 	if err != nil {

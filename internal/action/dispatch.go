@@ -86,13 +86,45 @@ func (d *Dispatcher) Dispatch(ctx context.Context, p auth.Principal, req Request
 
 	resp, err := d.execute(ctx, p, req, handler)
 
-	// A duplicate is not a second action. The limiter had to be taken
-	// optimistically, because whether a request is a replay is only knowable
-	// once the key is reserved — so give the unit back now that we know.
-	if err == nil && resp.Replayed {
+	switch {
+	case err == nil && resp.Replayed:
+		// A duplicate is not a second action. The limiter had to be taken
+		// optimistically, because whether a request is a replay is only knowable
+		// once the key is reserved — so give the unit back now that we know.
 		d.limiter.Refund(ctx, d.db, p.AgentID, handler.bucket(), d.clk.Real())
+
+	case err != nil && refusedBeforeActing(err):
+		// A request the world refused never became an action. Charging it the
+		// verb's own budget would mean an agent that mistypes a parameter three
+		// times cannot then do the thing it meant to do — and the agents here
+		// are programs, so getting a parameter wrong is how they LEARN the
+		// shape of the world.
+		//
+		// It is not free, though: the cost moves to the misc bucket, which has a
+		// deliberately wide burst so the first several mistakes each return the
+		// error that names the problem, and a narrow sustained rate so a loop
+		// of malformed requests still throttles. Diagnosable for the honest,
+		// bounded for the hostile.
+		d.limiter.Refund(ctx, d.db, p.AgentID, handler.bucket(), d.clk.Real())
+		_ = d.limiter.Take(ctx, d.db, p.AgentID, BucketMisc, d.clk.Real())
 	}
 	return resp, err
+}
+
+// refusedBeforeActing reports whether an error means nothing happened.
+//
+// These are the codes a verb returns from validation or a missing row: the world
+// looked at the request and said no, without changing anything. Deliberately NOT
+// included are insufficient_funds, cooldown_active and capacity_full — those are
+// real attempts at real actions that happened to fail, and an agent that can
+// retry them for free is an agent that can probe the world's state at no cost.
+func refusedBeforeActing(err error) bool {
+	switch werr.CodeOf(err) {
+	case werr.InvalidParams, werr.NotFound, werr.InsufficientScope:
+		return true
+	default:
+		return false
+	}
 }
 
 func (d *Dispatcher) execute(ctx context.Context, p auth.Principal, req Request, h Handler) (Response, error) {

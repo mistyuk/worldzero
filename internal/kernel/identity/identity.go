@@ -62,6 +62,7 @@ type Service struct {
 	// world package depends on action, which depends on events, and identity
 	// sits below all three. A function value keeps the layering honest.
 	placer Placer
+	wallet Wallet
 }
 
 // Placer positions a newly registered agent and returns its location id, or ""
@@ -72,6 +73,17 @@ type Placer func(ctx context.Context, tx pgx.Tx, clk clock.Clock, agentID string
 func (s *Service) WithPlacer(p Placer) *Service {
 	c := *s
 	c.placer = p
+	return &c
+}
+
+// Wallet opens a citizen's account at registration.
+type Wallet func(ctx context.Context, tx pgx.Tx, agentID string) error
+
+// WithWallet returns a Service that gives new citizens a wallet, so an agent's
+// first action does not have to be opening one.
+func (s *Service) WithWallet(w Wallet) *Service {
+	c := *s
+	c.wallet = w
 	return &c
 }
 
@@ -114,8 +126,8 @@ func (s *Service) Register(ctx context.Context, tx pgx.Tx, p RegisterParams) (Ag
 	}
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO agents (id, name, status, model_label, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO agents (id, name, status, model_label, created_at, energy_updated_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
 	`, agent.ID, agent.Name, agent.Status, agent.ModelLabel, agent.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err, "agents_name_key") {
