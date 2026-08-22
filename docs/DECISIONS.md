@@ -373,41 +373,42 @@ observe → implement → deploy → observe loop for real, years before Phase 7
 safe if something mechanical proves it broke nothing. No CI, no autonomy — just a bot with
 commit access.
 
-**Open constraint (found at repo setup, 2026-08-22):** on GitHub Free, this private repo
-gets neither of the two things this ADR depends on.
+**Resolved, and the first diagnosis was wrong (2026-08-22):** the repo is now **public**,
+which makes branch protection and rulesets available and Actions free and unlimited. The
+history was scrubbed and the repository recreated rather than force-pushed — see the note
+below on why that distinction matters.
 
-1. **Branch protection and rulesets are unavailable** — the API returns 403, "Upgrade to
-   GitHub Pro or make this repository public." The containment half of this ADR is
-   therefore unenforced.
-2. **Actions does not run at all.** Every workflow — including a nine-line one that only
-   echoes — returns `startup_failure` in 0s with `path: "BuildFailed"` and no jobs, while
-   `actions/permissions` reports `enabled: true`. A failure that predates workflow
-   evaluation and is identical for every file is an account-level entitlement or billing
-   block, not a YAML problem. Check github.com/settings/billing for exhausted private-repo
-   Actions minutes or a zero spending limit.
+The remaining blocker is narrower and more specific than first thought. Actions still does
+not run, and the public repo finally produced the real error:
 
-The second one matters more, and it inverts the usual priority: **no CI, no autonomy —
-just a bot with commit access.** Until Actions runs, `scripts/ci.sh` is the gate, and it
-is a human running it, which is exactly the manual step this ADR wanted to automate.
+> The job was not started because your account is locked due to a billing issue.
 
-Neither blocks development, and neither is needed until M2. Both must be resolved before
-any credential is issued to an autonomous agent. Three ways out, in order of preference:
+That is **account-wide**, not a property of private repos or exhausted minutes — which is
+why a nine-line echo-only workflow and a `runs-on: self-hosted` probe both failed
+identically and instantly. Upgrading to GitHub Pro would not have fixed it either. It
+clears at github.com/settings/billing, and nothing else here can clear it.
 
-1. **GitHub Pro ($4/month)** — enables rulesets on private repos, and raises the Actions
-   allowance. Cheapest, changes nothing else, keeps the repo private through Phase 1
-   hardening.
-2. **Flip the repo public** — both protection and Actions are free and unlimited on public
-   repos, so this fixes both constraints at once. But do it *after* M5 (ed25519, rate
-   limits, the ChaosBot suite), not before; publishing the world's physics before its
-   security floor is proven is a gift to whoever wants to break it first.
-3. **Read-only bot account plus a fork** — the agent holds no write access to this repo at
-   all and opens cross-repo PRs. Strictly stronger than branch protection, since the agent
-   is not blocked by a rule so much as it simply cannot push. Costs nothing but a second
-   account.
+Until it clears, `scripts/ci.sh` is the gate and a human runs it. **No CI, no autonomy** —
+an agent opening pull requests with no mechanical check is just a bot with commit access,
+so this must be resolved before any credential is issued to one (M2).
+
+**A force-push does not remove anything.** Verified rather than assumed: after rewriting
+history and force-pushing, the pre-scrub commit and its blob were still fetchable by SHA
+through the API. Force-pushing makes objects *unreachable*, not deleted, and GitHub
+collects them on its own schedule. The fix that actually works is a new repository, which
+is its own object network — confirmed by querying the old SHAs against the new repo and
+getting 404s, and by scanning a fresh clone. Anyone reaching for `git filter-repo` to
+remove a leaked secret should know this: the rewrite is necessary and not sufficient.
+
+Three ways out remained if going public had not been chosen, kept for the record:
 
 Note what does *not* work: a fine-grained PAT cannot express "may push a branch and open a
 PR, but may not merge" — `contents: write` grants both. Token scoping is not a substitute
 for one of the three above.
+
+**Still open:** the pre-scrub repository survives, renamed and private, as
+`worldzero-prescrub-private`. It holds the only copy of the unredacted history. Deleting it
+needs the `delete_repo` scope; it is harmless while private, but it should go.
 
 **Revisit when:** the loop merges PRs consistently and human review becomes the bottleneck
 rather than the safeguard. That is the real entry to Phase 7.

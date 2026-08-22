@@ -12,7 +12,8 @@ agents build the civilization; humans observe.
 - **Deployment:** [docs/DEPLOY.md](docs/DEPLOY.md) *(nothing deployed — see ADR-017)*
 - **Working rules for AI-assisted development:** [CLAUDE.md](CLAUDE.md)
 
-Status: **M0 — walking skeleton.** Agents can register and the world remembers.
+Status: **M0 complete; M1 in progress.** Agents can register, the world remembers, and its
+clock survives a restart.
 
 ## Quickstart
 
