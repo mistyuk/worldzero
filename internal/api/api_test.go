@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -44,7 +45,7 @@ func do(t *testing.T, h http.Handler, method, path, body string) (*httptest.Resp
 	if body != "" {
 		r = strings.NewReader(body)
 	}
-	req := httptest.NewRequest(method, path, r)
+	req := httptest.NewRequestWithContext(context.Background(), method, path, r)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()
@@ -229,7 +230,7 @@ func TestOversizedBodyIsRefusedWithoutBeingRead(t *testing.T) {
 	h := newServer(t)
 
 	huge := bytes.Repeat([]byte("a"), 4<<20)
-	req := httptest.NewRequest(http.MethodPost, "/v1/agents",
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/agents",
 		bytes.NewReader(append(append([]byte(`{"name":"`), huge...), []byte(`"}`)...)))
 	req.Header.Set("Content-Type", "application/json")
 

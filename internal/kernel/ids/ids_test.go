@@ -101,7 +101,7 @@ func TestNewUsesWorldClock(t *testing.T) {
 	older := ids.NewGenerator(past).New(ids.Event)
 	newer := ids.NewGenerator(future).New(ids.Event)
 
-	if !(older < newer) {
+	if older >= newer {
 		t.Fatalf("ids do not sort by world time: %q should precede %q", older, newer)
 	}
 }

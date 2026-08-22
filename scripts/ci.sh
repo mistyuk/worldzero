@@ -33,6 +33,15 @@ echo "clean"
 step "go vet"
 go vet ./...
 
+step "golangci-lint"
+if command -v golangci-lint >/dev/null 2>&1; then
+    golangci-lint run ./...
+elif [ -x "$(go env GOPATH)/bin/golangci-lint" ]; then
+    "$(go env GOPATH)/bin/golangci-lint" run ./...
+else
+    echo "not installed; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+fi
+
 step "build"
 go build ./...
 

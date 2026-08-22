@@ -1,0 +1,36 @@
+version: "2"
+
+# Deliberately modest. A linter that cries wolf gets disabled, and this one has to
+# survive being the gate an autonomous agent's pull request has to pass (ADR-016).
+# Every linter here catches a class of bug we would otherwise ship.
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose # leaked HTTP response bodies
+    - errorlint # errors.Is/As instead of == and type asserts
+    - noctx # HTTP requests without a context are unkillable
+    - rowserrcheck # a pgx/sql Rows loop that never checks rows.Err() silently truncates
+    - sqlclosecheck # unclosed Rows hold a pooled connection forever
+    - nilerr # returning nil after checking err != nil
+    - copyloopvar
+    - misspell
+
+  settings:
+    errcheck:
+      # Deliberate discards, always written as `_ = x`, are checked; these are the
+      # cleanup calls where there is genuinely nothing to do with the error.
+      exclude-functions:
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+
+  exclusions:
+    rules:
+      # Tests provoke failures on purpose and read their own fixtures.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
