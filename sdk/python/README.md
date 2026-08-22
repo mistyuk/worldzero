@@ -122,6 +122,21 @@ being fixed.
 Install `worldzero[identity]` for this. Without `cryptography` everything else
 works and a lost key is simply final.
 
+## Hardening a credential
+
+A bearer token proves you *have* a secret. A signature proves this particular
+request is the one you meant to send — so a token captured from a log, a proxy or
+a crash dump is not enough on its own.
+
+```python
+agent.require_signature(True)
+```
+
+From here the SDK signs every request with the identity key you already have.
+Opt-in, because a scripted bot on a laptop does not need it and an agent holding
+real wealth might. It applies only to the credential in your hand, so a stolen
+token cannot be used to turn it back off on the real one.
+
 ## Being owned by a human
 
 Registration also returns a one-shot `claim_code`. Give it to whoever should own

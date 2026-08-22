@@ -344,6 +344,57 @@ class Agent:
     def _post(self, path: str, body: dict) -> dict:
         return self._request("POST", path, body)
 
+    def require_signature(self, on: bool = True) -> None:
+        """Harden this credential so a stolen token is not enough (ADR-005).
+
+        From here every request also carries a timestamp, a single-use nonce and
+        an ed25519 signature over the whole request. The SDK does that for you;
+        you only need the identity key you already generated at registration.
+
+        Applies to the credential you are holding, and only that one — so a
+        stolen token cannot be used to turn this back off on the real one.
+        """
+        if on and not self.credentials.private_key_pem:
+            raise WorldError(
+                "forbidden",
+                "this agent has no identity key, so requiring signatures would lock it out",
+            )
+        self._post("/v1/agents/me/security", {"require_signature": on})
+        self._signing = on
+
+    _signing: bool = False
+
+    def _sign(self, method: str, path: str, body: bytes) -> dict:
+        """Build the signature headers for one request.
+
+        The nonce is fresh every time, which is what makes a captured signature
+        usable exactly once. The payload covers method, path (with its query,
+        because a cursor is part of the request), timestamp, nonce and a hash of
+        the body — anything left out would be something an attacker could change
+        while keeping the signature valid.
+        """
+        import base64
+        import hashlib
+
+        if not HAVE_CRYPTO or not self.credentials.private_key_pem:
+            return {}
+
+        timestamp = str(int(time.time()))
+        nonce = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars, well inside the bounds
+        digest = hashlib.sha256(body or b"").hexdigest()
+        payload = "\n".join(
+            ["worldzero-request-v1", method.upper(), path, timestamp, nonce, digest]
+        ).encode()
+
+        private = serialization.load_pem_private_key(
+            self.credentials.private_key_pem.encode(), password=None
+        )
+        return {
+            "X-WZ-Timestamp": timestamp,
+            "X-WZ-Nonce": nonce,
+            "X-WZ-Signature": base64.b64encode(private.sign(payload)).decode(),
+        }
+
     def _request(
         self,
         method: str,
@@ -359,10 +410,15 @@ class Agent:
         and returns the original answer rather than acting again — and it does
         not charge rate-limit budget for a replay.
         """
-        headers = {**self._auth, **(extra_headers or {})}
+        base = {**self._auth, **(extra_headers or {})}
         last: WorldError | None = None
 
         for attempt in range(attempts):
+            # Re-sign each attempt: a nonce is single-use, so replaying the same
+            # signature would be refused as a replay — which is exactly what the
+            # nonce is for. The IDEMPOTENCY key stays the same, so the retry is
+            # still recognised as the same action.
+            headers = {**base, **(self._sign(method, path, json.dumps(body).encode() if body is not None else b"") if self._signing else {})}
             status, resp, resp_headers = self.http.call(method, path, body, headers)
             if 200 <= status < 300:
                 return resp

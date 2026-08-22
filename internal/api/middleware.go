@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
@@ -108,6 +112,20 @@ func authenticate(d Deps) gin.HandlerFunc {
 		if fromCookie != (p.Kind == auth.KindSession) {
 			unauthorized(c, d, werr.New(werr.Unauthenticated, "invalid or expired credential"))
 			return
+		}
+
+		// ADR-005. A bearer token proves you HAVE a secret; a signature proves
+		// this particular request is the one you meant to send — so a token
+		// captured from a log or a proxy is not enough on its own.
+		//
+		// Only when the credential asks for it. The citizen generated its own
+		// keypair, so it is the right party to decide whether a stolen token
+		// should be usable, and a scripted bot that does not care pays nothing.
+		if p.RequiresSignature {
+			if err := d.verifySignature(c, p); err != nil {
+				unauthorized(c, d, err)
+				return
+			}
 		}
 
 		c.Set(ctxPrincipal, p)
@@ -218,4 +236,37 @@ func isTLS(c *gin.Context) bool {
 	// Only consulted when a proxy is trusted; SetTrustedProxies(nil) means a
 	// direct caller cannot fake this (see NewRouter).
 	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
+// verifySignature checks a signed request, reading the body so the hash covers
+// what the handler will actually see.
+//
+// The body is restored afterwards: consuming it here and leaving the handler
+// with an empty reader would make every signed request silently fail to parse.
+func (d Deps) verifySignature(c *gin.Context, p auth.Principal) error {
+	var body []byte
+	if c.Request.Body != nil {
+		read, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			return werr.New(werr.InvalidParams, "could not read the request body")
+		}
+		body = read
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	req := auth.SignedRequest{
+		Method:    c.Request.Method,
+		Path:      c.Request.URL.RequestURI(),
+		Timestamp: c.GetHeader(auth.HeaderTimestamp),
+		Nonce:     c.GetHeader(auth.HeaderNonce),
+		Signature: c.GetHeader(auth.HeaderSignature),
+		Body:      body,
+	}
+
+	// The nonce burn is a write, so it needs a transaction of its own — it must
+	// commit even when the action that follows does not, or a failed action
+	// would hand its signature back for reuse.
+	return d.DB.Tx(c.Request.Context(), func(ctx context.Context, tx pgx.Tx) error {
+		return auth.VerifySignature(ctx, tx, d.Hasher, p.PublicKey, p.AgentID, req, d.Clock.Real())
+	})
 }

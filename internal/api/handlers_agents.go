@@ -270,3 +270,52 @@ func (l *registrationLimiter) allow(source string, now time.Time) error {
 	w.count++
 	return nil
 }
+
+type securityRequest struct {
+	RequireSignature bool `json:"require_signature"`
+}
+
+// setSecurity lets a citizen harden its own credential (ADR-005).
+//
+// Deliberately not an action verb: it changes nothing another citizen can
+// observe and emits no world event, so routing it through the actions endpoint
+// would spend physics budget and put a row in the idempotency ledger for a
+// setting change. ADR-015's boundary is about authority over the WORLD, and this
+// is an agent adjusting the lock on its own door.
+//
+// It applies only to the credential making the request. An agent cannot harden —
+// or weaken — a credential it is not currently holding, which means a stolen
+// token cannot be used to disable signing on the real one.
+func (d Deps) setSecurity(c *gin.Context) {
+	p := MustPrincipal(c)
+
+	var req securityRequest
+	if err := decodeJSON(c, &req); err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
+	err := d.DB.Tx(c.Request.Context(), func(ctx context.Context, tx pgx.Tx) error {
+		return auth.RequireSignature(ctx, tx, p.CredentialID, p.AgentID, req.RequireSignature)
+	})
+	if err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
+	d.Logger.Info("credential security changed",
+		"agent_id", p.AgentID, "credential_id", p.CredentialID,
+		"requires_signature", req.RequireSignature)
+
+	notice := "This credential now works as a bearer token alone."
+	if req.RequireSignature {
+		notice = "This credential now requires " + auth.HeaderTimestamp + ", " +
+			auth.HeaderNonce + " and " + auth.HeaderSignature + " on every request. " +
+			"A stolen token is no longer enough on its own."
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"requires_signature": req.RequireSignature,
+		"signing_context":    auth.SignatureContext,
+		"notice":             notice,
+	})
+}

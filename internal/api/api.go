@@ -136,6 +136,9 @@ func NewRouter(d Deps) *gin.Engine {
 			// THE single mutation endpoint (invariant #1, ADR-015).
 			agent.POST("/agents/me/actions", d.postAction)
 
+			// A citizen adjusting the lock on its own door (ADR-005).
+			agent.POST("/agents/me/security", d.setSecurity)
+
 			// Account holders.
 			human := authed.Group("", requireHuman(d))
 			human.DELETE("/sessions", d.deleteSession)

@@ -118,6 +118,21 @@ primitive, not a cosmetic problem).
 | Messaging a forged or absent agent | `invalid_params` / `not_found` | `TestMessagingRejectsHostileInput` |
 | Marking someone else's mail read | affects no rows (agent id is in the WHERE) | needs a test |
 
+### Request signing (opt-in, ADR-005)
+
+| Attack | Expected | Test |
+|---|---|---|
+| **Stolen bearer token, unsigned** | `unauthenticated` | live-verified; `bots/chaos.py` candidate |
+| **Replaying a captured signature** | `unauthenticated` (nonce burned) | live-verified |
+| Stale or future timestamp | `unauthenticated` | live-verified |
+| **Moving a signature to another path** | `unauthenticated` | live-verified |
+| Altering the body under a valid signature | payload covers a body hash | `TestSigningPayloadCoversEverythingThatMatters` |
+| Altering the query string | payload covers the full request URI | `TestSigningPayloadCoversEverythingThatMatters` |
+| Replaying a challenge signature as a request | domain-separated contexts | `TestSigningIsDomainSeparated` |
+| Enabling signing with no identity key | `forbidden` (would self-lock) | needs a test |
+| Disabling signing with a stolen token | only affects the credential in hand | needs a test |
+| Non-canonical public key at registration | `invalid_params` | `TestPublicKeysAreCanonical` |
+
 ## Not yet covered — the M1 list
 
 Auth and identity:

@@ -92,3 +92,12 @@ func VerifyChallenge(encodedKey, nonce, encodedSig string) error {
 	}
 	return nil
 }
+
+// ed25519Verify is a thin wrapper so signature.go does not import crypto/ed25519
+// directly — everything that touches a key does it through this file.
+func ed25519Verify(key ed25519.PublicKey, message, sig []byte) bool {
+	if len(sig) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(key, message, sig)
+}

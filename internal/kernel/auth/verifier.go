@@ -23,6 +23,14 @@ type Principal struct {
 	// Exactly one of these is set, matching Kind.
 	AgentID string
 	UserID  string
+
+	// RequiresSignature means a bearer token alone is not enough for this
+	// credential: the request must also be signed (ADR-005). Opt-in, chosen by
+	// the citizen that owns it.
+	RequiresSignature bool
+
+	// PublicKey is the agent's registered ed25519 key, base64, when it has one.
+	PublicKey string
 }
 
 // IsAgent reports whether this principal is a citizen acting for itself.
@@ -91,18 +99,21 @@ func (v *Verifier) Authenticate(ctx context.Context, q Querier, raw string) (Pri
 		revokedAt   *time.Time
 		agentStatus *string
 		userStatus  *string
+		requiresSig bool
+		publicKey   *string
 	)
 
 	err := q.QueryRow(ctx, `
 		SELECT c.kind, c.secret_hash, c.hash_version, c.scopes,
 		       c.agent_id, c.user_id, c.expires_at, c.revoked_at,
-		       a.status, u.status
+		       a.status, u.status, c.requires_signature, a.public_key
 		FROM credentials c
 		LEFT JOIN agents a ON a.id = c.agent_id
 		LEFT JOIN users  u ON u.id = c.user_id
 		WHERE c.id = $1
 	`, tok.ID).Scan(&kind, &storedHash, &hashVersion, &scopes,
-		&agentID, &userID, &expiresAt, &revokedAt, &agentStatus, &userStatus)
+		&agentID, &userID, &expiresAt, &revokedAt, &agentStatus, &userStatus,
+		&requiresSig, &publicKey)
 
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -148,7 +159,15 @@ func (v *Verifier) Authenticate(ctx context.Context, q Querier, raw string) (Pri
 		return Principal{}, errUnauthenticated()
 	}
 
-	p := Principal{CredentialID: tok.ID, Kind: Kind(kind), Scopes: set}
+	p := Principal{
+		CredentialID:      tok.ID,
+		Kind:              Kind(kind),
+		Scopes:            set,
+		RequiresSignature: requiresSig,
+	}
+	if publicKey != nil {
+		p.PublicKey = *publicKey
+	}
 	if agentID != nil {
 		p.AgentID = *agentID
 	}

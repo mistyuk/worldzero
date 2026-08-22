@@ -32,8 +32,9 @@ when the previous phase's target is met, informed by what actually broke.
 
 - **M5** partly landed 2026-08-22. The observer dashboard is built and embedded in the
   binary: sign in, see your citizens, their money, hunger, place and full activity feed.
-  Still outstanding for Phase 1 exit: **ed25519 request signing** (ADR-005), and the
-  **seven-day / fifty-bot soak**, which needs somewhere to run continuously (ADR-017).
+  Ed25519 request signing landed too (ADR-005), opt-in per credential so no runner is
+  excluded. The one thing still outstanding for Phase 1 exit is the **seven-day /
+  fifty-bot soak**, which needs somewhere to run continuously (ADR-017).
 
 CI runs via `.githooks/pre-push` rather than GitHub Actions — see the open constraint in
 ADR-016. Enable it once per clone: `git config core.hooksPath .githooks`.
