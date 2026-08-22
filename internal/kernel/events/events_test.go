@@ -152,6 +152,129 @@ func TestConcurrentAppendsAreAllVisible(t *testing.T) {
 	}
 }
 
+// TestPollerNeverMissesAnEventUnderLoad is the production-shaped version of the
+// ADR-012 guarantee, and the one that would actually catch a regression.
+//
+// TestConcurrentAppendsAreAllVisible polls only after every writer has finished,
+// which is the easy case: by then everything has committed and any ordering is
+// forgivable. The dangerous case is polling *while* writers are in flight, which
+// is what every agent in the world does continuously.
+//
+// The writers are deliberately adversarial rather than uniform, because uniform
+// writers cannot expose the bug at all: if everyone sleeps the same amount,
+// commit order matches append order by accident and no gap ever opens. (An
+// earlier version of this test made exactly that mistake and passed happily with
+// the lock removed.)
+//
+// So: writer i starts slightly later than writer i-1, which tends to give it a
+// HIGHER seq, and then sleeps for a SHORTER time before committing. Append order
+// and commit order are therefore pushed in opposite directions, which is
+// precisely the interleaving ADR-012 describes — a later seq becoming visible
+// before an earlier one.
+//
+// Without the lock, the poller sees the high seq, advances its cursor, and the
+// low ones commit behind it, unreachable forever. With the lock, writer i cannot
+// take a seq until writer i-1 has committed, so the two orders cannot diverge.
+//
+// Remove the lock from Append and this test fails; that is its whole purpose.
+func TestPollerNeverMissesAnEventUnderLoad(t *testing.T) {
+	d := testutil.DB(t)
+	app := newAppender()
+	ctx := context.Background()
+
+	// Tag this run so a shared, never-truncated log does not confuse the count.
+	run := ids.NewGenerator(clock.System{}).New("run")
+	start := testutil.MaxSeq(t, d)
+
+	const writers = 8
+
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	writersDone := make(chan struct{})
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Stagger the starts so seq tends to increase with i.
+			time.Sleep(time.Duration(i) * 4 * time.Millisecond)
+
+			err := d.Tx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+				if _, err := app.Append(ctx, tx, events.New{
+					Type:       events.TypeAgentRecovered,
+					SubjectIDs: map[string]string{"run": run},
+					Payload:    map[string]any{"writer": i},
+				}); err != nil {
+					return err
+				}
+				// Later writers commit sooner: commit order fights append order.
+				time.Sleep(time.Duration(writers-i) * 12 * time.Millisecond)
+				return nil
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+
+	go func() { wg.Wait(); close(writersDone) }()
+
+	// Poll concurrently, exactly as an agent would: advance the cursor to the
+	// last seq seen and never look back.
+	seen := map[string]bool{}
+	cursor := start
+	deadline := time.After(30 * time.Second)
+	drained := false
+
+	for {
+		batch, err := events.Since(ctx, d.Pool(), cursor, 50)
+		if err != nil {
+			t.Fatalf("poll from %d: %v", cursor, err)
+		}
+		for _, e := range batch {
+			if e.Seq <= cursor {
+				t.Fatalf("event %d arrived at or below cursor %d", e.Seq, cursor)
+			}
+			cursor = e.Seq
+			if e.SubjectIDs["run"] == run {
+				if seen[e.ID] {
+					t.Fatalf("event %s delivered twice", e.ID)
+				}
+				seen[e.ID] = true
+			}
+		}
+
+		if len(seen) == writers {
+			break
+		}
+
+		// Only stop once the writers have finished AND a further poll found
+		// nothing new; otherwise a quiet moment mid-run looks like the end.
+		if drained && len(batch) == 0 {
+			break
+		}
+		select {
+		case <-writersDone:
+			drained = true
+		case <-deadline:
+			t.Fatalf("timed out having seen %d/%d events", len(seen), writers)
+		default:
+		}
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("writer: %v", err)
+	}
+
+	if len(seen) != writers {
+		t.Fatalf("a live poller saw %d of %d events; the cursor advanced past one "+
+			"that had not yet become visible (ADR-012)", len(seen), writers)
+	}
+}
+
 // TestEventLogIsAppendOnly proves invariant #2 is enforced by the database, not
 // by our good intentions.
 func TestEventLogIsAppendOnly(t *testing.T) {
