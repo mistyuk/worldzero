@@ -335,3 +335,9 @@ func jsonMarshalString(v string) (string, error) {
 	b, err := json.Marshal(v)
 	return string(b), err
 }
+
+func newRequest(method, path string) *http.Request {
+	return httptest.NewRequestWithContext(context.Background(), method, path, nil)
+}
+
+func newRecorder() *httptest.ResponseRecorder { return httptest.NewRecorder() }

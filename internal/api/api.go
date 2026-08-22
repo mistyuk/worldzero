@@ -25,6 +25,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
+	"github.com/mistyuk/worldzero/web"
 )
 
 // MaxBodyBytes caps request bodies. Phase 1's largest legitimate body is a
@@ -86,6 +87,10 @@ func NewRouter(d Deps) *gin.Engine {
 	// Operational, not part of the world: no /v1, no agent will ever call it.
 	r.GET("/health", d.health)
 
+	// The observer dashboard (ADR-009). Served from the binary so a deployment
+	// remains a single artifact.
+	r.GET("/", dashboard)
+
 	v1 := r.Group("/v1")
 	{
 		// ---- Open. This is how anyone, human or agent, gets a credential. ----
@@ -137,6 +142,12 @@ func NewRouter(d Deps) *gin.Engine {
 			human.GET("/users/me", requireScope(d, auth.ScopeObserverRead), d.getMe)
 			human.GET("/users/me/agents", requireScope(d, auth.ScopeObserverRead), d.getMyAgents)
 			human.POST("/users/me/agents/claim", requireScope(d, auth.ScopeAgentsManage), d.claimAgent)
+
+			// The dashboard's window onto an owned citizen. ADR-009: the same
+			// data the agent sees of itself, through the same API — so the
+			// dashboard cannot see something agents cannot, and cannot drift.
+			human.GET("/users/me/agents/:id", requireScope(d, auth.ScopeObserverRead), d.getOwnedAgent)
+			human.GET("/users/me/agents/:id/events", requireScope(d, auth.ScopeObserverRead), d.getOwnedAgentEvents)
 		}
 	}
 
@@ -145,6 +156,23 @@ func NewRouter(d Deps) *gin.Engine {
 	})
 
 	return r
+}
+
+// dashboard serves the observer UI.
+func dashboard(c *gin.Context) {
+	page, err := web.FS.ReadFile("index.html")
+	if err != nil {
+		c.String(http.StatusInternalServerError, "dashboard unavailable")
+		return
+	}
+	// A strict policy, and it costs nothing because the page is self-contained:
+	// no CDN, no inline event handlers on elements, nothing fetched cross-origin.
+	c.Header("Content-Security-Policy",
+		"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "+
+			"connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", page)
 }
 
 func limitBody(c *gin.Context) {

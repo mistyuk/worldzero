@@ -1,10 +1,13 @@
 .git
 .github
 docs
-web
 bots
 sdk
 deploy
+
+# NOT web/: the observer dashboard is embedded in the binary (ADR-009), so
+# excluding it from the build context means the package does not compile — or,
+# worse, compiles against a stale copy and serves nothing.
 *.md
 .gitignore
 .gitattributes

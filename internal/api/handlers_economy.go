@@ -8,6 +8,7 @@ import (
 
 	"github.com/mistyuk/worldzero/internal/economy"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
+	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 )
 
 type listingView struct {
@@ -105,6 +106,7 @@ func (d Deps) worldStats(c *gin.Context) {
 		"world_time": now,
 		"real_time":  d.Clock.Real(),
 		"clock_rate": d.Clock.Rate(),
+		"world_day":  worldclock.Day(d.World, now),
 		"population": gin.H{
 			"total":         population,
 			"active":        active,

@@ -30,6 +30,11 @@ when the previous phase's target is met, informed by what actually broke.
   world. The M4 gate — 50 bots for 48 hours locally with zero invariant violations — has
   not been run yet; short soaks (15 bots, 0 crashes) pass.
 
+- **M5** partly landed 2026-08-22. The observer dashboard is built and embedded in the
+  binary: sign in, see your citizens, their money, hunger, place and full activity feed.
+  Still outstanding for Phase 1 exit: **ed25519 request signing** (ADR-005), and the
+  **seven-day / fifty-bot soak**, which needs somewhere to run continuously (ADR-017).
+
 CI runs via `.githooks/pre-push` rather than GitHub Actions — see the open constraint in
 ADR-016. Enable it once per clone: `git config core.hooksPath .githooks`.
 
