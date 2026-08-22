@@ -8,6 +8,8 @@ Read before building anything:
 - `docs/DECISIONS.md` — architecture decisions and what we deliberately deferred.
 - `docs/ROADMAP.md` — phased build order and the current milestone.
 - `docs/PHASE-1-SPEC.md` — the concrete spec for what is being built right now.
+- `docs/DEPLOY.md` — where the world runs and the constraints of that box. Read before
+  touching deployment; it is a shared box running other people's production.
 
 ## Constitutional invariants
 
