@@ -30,3 +30,8 @@ Thumbs.db
 # Local data
 /data/
 *.log
+
+# Notes about real infrastructure. Kept out of git deliberately: they describe a
+# live production box (addresses, service inventory, firewall rules), and this
+# repo is intended to be public one day.
+/local/
