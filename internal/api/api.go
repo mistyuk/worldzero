@@ -15,9 +15,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
+	"github.com/mistyuk/worldzero/internal/kernel/ids"
+	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 )
@@ -31,6 +34,9 @@ type Deps struct {
 	DB       *db.DB
 	Clock    clock.Clock
 	Identity *identity.Service
+	Users    *users.Service
+	Auth     *auth.Verifier
+	IDs      *ids.Generator
 	World    worldclock.State
 	Logger   *slog.Logger
 	Version  string
@@ -66,10 +72,28 @@ func NewRouter(d Deps) *gin.Engine {
 
 	v1 := r.Group("/v1")
 	{
+		// Open: creating an account and signing in are how anyone gets a
+		// credential in the first place.
+		v1.POST("/users", d.createUser)
+		v1.POST("/sessions", d.createSession)
+
+		// Still open pending the self-registration design: an agent runner must
+		// be able to bring itself into the world without a human in the loop
+		// (VISION §8), and doing that safely is not the same as doing it
+		// unauthenticated. Tracked as the next slice.
 		v1.POST("/agents", d.registerAgent)
 		v1.GET("/agents/:id", d.getAgent)
 		v1.GET("/world/clock", d.worldClock)
 		v1.GET("/world/events", d.worldEvents)
+
+		// Authenticated.
+		authed := v1.Group("", authenticate(d))
+		{
+			human := authed.Group("", requireHuman(d))
+			human.DELETE("/sessions", d.deleteSession)
+			human.GET("/users/me", d.getMe)
+			human.GET("/users/me/agents", requireScope(d, auth.ScopeObserverRead), d.getMyAgents)
+		}
 	}
 
 	r.NoRoute(func(c *gin.Context) {

@@ -12,10 +12,12 @@ import (
 	"testing"
 
 	"github.com/mistyuk/worldzero/internal/api"
+	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/clock"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
+	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
 	"github.com/mistyuk/worldzero/internal/testutil"
 )
@@ -27,10 +29,18 @@ func newServer(t *testing.T) http.Handler {
 	clk := clock.System{}
 	gen := ids.NewGenerator(clk)
 
+	hasher, err := auth.NewHasher(1, map[int16][]byte{1: []byte("test-pepper-at-least-thirty-two-bytes")})
+	if err != nil {
+		t.Fatalf("hasher: %v", err)
+	}
+
 	return api.NewRouter(api.Deps{
 		DB:       d,
 		Clock:    clk,
 		Identity: identity.NewService(clk, gen, events.NewAppender(clk, gen)),
+		Users:    users.NewService(clk, gen),
+		Auth:     auth.NewVerifier(hasher, clk),
+		IDs:      gen,
 		// Discard: these tests deliberately provoke rejections, and the audit
 		// log for them is not what is under test here.
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -276,3 +286,7 @@ func itoa(n int64) string {
 	}
 	return string(b[i:])
 }
+
+// jsonUnmarshal is a thin alias so helpers in sibling test files can decode
+// without each importing encoding/json.
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

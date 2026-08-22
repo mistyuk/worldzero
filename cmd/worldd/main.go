@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"github.com/mistyuk/worldzero/internal/api"
+	"github.com/mistyuk/worldzero/internal/kernel/auth"
 	"github.com/mistyuk/worldzero/internal/kernel/db"
 	"github.com/mistyuk/worldzero/internal/kernel/events"
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
+	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
 )
 
@@ -83,10 +85,22 @@ func run() error {
 	gen := ids.NewGenerator(clk)
 	appender := events.NewAppender(clk, gen)
 
+	hasher, err := auth.NewHasher(cfg.PepperVersion, cfg.Peppers)
+	if err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	if cfg.DevPepper {
+		log.Warn("AUTH_PEPPER is unset and a development default is in use; " +
+			"anyone with the source can forge credentials against this database")
+	}
+
 	router := api.NewRouter(api.Deps{
 		DB:       database,
 		Clock:    clk,
 		Identity: identity.NewService(clk, gen, appender),
+		Users:    users.NewService(clk, gen),
+		Auth:     auth.NewVerifier(hasher, clk),
+		IDs:      gen,
 		World:    worldState,
 		Logger:   log,
 		Version:  version,
@@ -161,6 +175,12 @@ type config struct {
 	MaxConns       int32
 	LogLevel       slog.Level
 	TrustedProxies []string
+
+	// Peppers keyed by version. Credentials are HMACed under these, so they are
+	// what a stolen database dump does not contain.
+	Peppers       map[int16][]byte
+	PepperVersion int16
+	DevPepper     bool
 }
 
 func loadConfig() (config, error) {
@@ -201,6 +221,29 @@ func loadConfig() (config, error) {
 			return cfg, errors.New("WORLDD_MAX_CONNS must be a positive integer")
 		}
 		cfg.MaxConns = int32(n)
+	}
+
+	// AUTH_PEPPER is the server-held secret credentials are HMACed under
+	// (internal/kernel/auth/hash.go). AUTH_PEPPER_PREVIOUS keeps the prior one
+	// verifiable so a rotation is not a flag day.
+	//
+	// A development default exists so that `docker compose up` reaches a working
+	// world without ceremony, and worldd shouts about it on every boot. It is
+	// worthless as a secret precisely because it is in a public repository —
+	// which is the point: nobody can mistake it for a real one.
+	cfg.PepperVersion = 1
+	cfg.Peppers = map[int16][]byte{}
+	if p := env("AUTH_PEPPER", ""); p != "" {
+		if len(p) < 32 {
+			return cfg, errors.New("AUTH_PEPPER must be at least 32 characters")
+		}
+		cfg.Peppers[1] = []byte(p)
+	} else {
+		cfg.Peppers[1] = []byte("worldzero-development-pepper-not-a-secret-0000")
+		cfg.DevPepper = true
+	}
+	if p := env("AUTH_PEPPER_PREVIOUS", ""); p != "" {
+		cfg.Peppers[0] = []byte(p)
 	}
 
 	switch env("LOG_LEVEL", "info") {
