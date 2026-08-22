@@ -4,7 +4,12 @@ Build order, rescoped from [VISION.md](VISION.md) §50–58 per [DECISIONS.md](D
 Phases beyond the current one are direction, not commitment — each phase's design happens
 when the previous phase's target is met, informed by what actually broke.
 
-**Current milestone: M0** ← update this line as milestones complete.
+**Current milestone: M1** ← update this line as milestones complete.
+
+M0 landed 2026-08-22: registration, the event log, the injectable clock and the local
+stack all work end to end. Its one unmet criterion is "CI is green on `main`", which is
+blocked on the account-level Actions problem recorded in ADR-016, not on the code.
+`scripts/ci.sh` runs the same checks locally in the meantime.
 
 ## Phase 0+1 — Physics (current)
 
