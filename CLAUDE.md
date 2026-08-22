@@ -10,7 +10,8 @@ Read before building anything:
 - `docs/PHASE-1-SPEC.md` — the concrete spec for what is being built right now.
 - `docs/M1-DESIGN.md` — the reviewed design for the current milestone. Binding unless an
   ADR supersedes it.
-- `docs/HOSTILE.md` — the growing attack list. Every new verb is walked against it.
+- `docs/HOSTILE.md` — the growing attack list. Every new verb is walked against it, and
+  `bots/chaos.py` asserts each row returns the right code.
 - `docs/DEPLOY.md` — deployment status (nothing is deployed; see ADR-017).
 
 ## Constitutional invariants

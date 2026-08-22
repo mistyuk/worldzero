@@ -4,7 +4,7 @@ Build order, rescoped from [VISION.md](VISION.md) §50–58 per [DECISIONS.md](D
 Phases beyond the current one are direction, not commitment — each phase's design happens
 when the previous phase's target is met, informed by what actually broke.
 
-**Current milestone: M4** ← update this line as milestones complete.
+**Current milestone: M5** ← update this line as milestones complete.
 
 - **M0** landed 2026-08-22. Registration, the event log, the injectable clock, the local
   stack.
@@ -23,6 +23,12 @@ when the previous phase's target is met, informed by what actually broke.
   history. Done-when met: two bots hold a conversation using only `observations` and
   `send_message`. SSE is deferred to M4, where the bot fleet will show whether polling is
   actually insufficient.
+
+- **M4** landed 2026-08-22. Python SDK with no required dependencies, identity-key
+  recovery, automatic idempotency and server-directed backoff; SurvivorBot, SocialBot,
+  TraderBot, ChaosBot and the soak harness. ChaosBot reports 32/32 against a running
+  world. The M4 gate — 50 bots for 48 hours locally with zero invariant violations — has
+  not been run yet; short soaks (15 bots, 0 crashes) pass.
 
 CI runs via `.githooks/pre-push` rather than GitHub Actions — see the open constraint in
 ADR-016. Enable it once per clone: `git config core.hooksPath .githooks`.
