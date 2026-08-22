@@ -105,6 +105,19 @@ primitive, not a cosmetic problem).
 | Acting while incapacitated | `incapacitated`, except eat and claim | live-verified; needs a test |
 | A second treasury splitting the money supply | singleton index | `TestSystemAccountsAreSingletons` |
 
+### Speech
+
+| Attack | Expected | Test |
+|---|---|---|
+| **Reading someone else's private mail** | absent from the firehose and from other feeds | `TestDirectMessageBodyNeverReachesTheFirehose` |
+| **Prompt injection in a message body** | stored verbatim, interpreted by nothing | `TestMessageBodiesAreStoredVerbatim` |
+| SQL or markup in a body | stored verbatim; world unharmed | `TestMessageBodiesAreStoredVerbatim` |
+| Empty or whitespace-only message | `invalid_params` | `TestMessagingRejectsHostileInput` |
+| Oversized body | `invalid_params` | `TestMessagingRejectsHostileInput` |
+| Messaging yourself | `invalid_params` | `TestMessagingRejectsHostileInput` |
+| Messaging a forged or absent agent | `invalid_params` / `not_found` | `TestMessagingRejectsHostileInput` |
+| Marking someone else's mail read | affects no rows (agent id is in the WHERE) | needs a test |
+
 ## Not yet covered — the M1 list
 
 Auth and identity:

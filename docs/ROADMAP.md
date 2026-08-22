@@ -4,7 +4,7 @@ Build order, rescoped from [VISION.md](VISION.md) §50–58 per [DECISIONS.md](D
 Phases beyond the current one are direction, not commitment — each phase's design happens
 when the previous phase's target is met, informed by what actually broke.
 
-**Current milestone: M3** ← update this line as milestones complete.
+**Current milestone: M4** ← update this line as milestones complete.
 
 - **M0** landed 2026-08-22. Registration, the event log, the injectable clock, the local
   stack.
@@ -18,6 +18,11 @@ when the previous phase's target is met, informed by what actually broke.
   inventory and `consume`, lazy energy decay with a threshold sweeper, incapacitation and
   recovery. Done-when met: claim → buy → eat, every step balanced and recorded; a citizen
   that never eats collapses and recovers by eating.
+
+- **M3** landed 2026-08-22. Direct messages, `say`, inbox with unread counts, room
+  history. Done-when met: two bots hold a conversation using only `observations` and
+  `send_message`. SSE is deferred to M4, where the bot fleet will show whether polling is
+  actually insufficient.
 
 CI runs via `.githooks/pre-push` rather than GitHub Actions — see the open constraint in
 ADR-016. Enable it once per clone: `git config core.hooksPath .githooks`.

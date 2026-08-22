@@ -112,6 +112,7 @@ func NewRouter(d Deps) *gin.Engine {
 		v1.GET("/world/events", d.worldEvents)
 		v1.GET("/world/locations", d.listLocations)
 		v1.GET("/world/locations/:id", d.getLocation)
+		v1.GET("/world/locations/:id/said", d.getRoom)
 		v1.GET("/world/actions", d.listVerbs)
 		v1.GET("/world/listings", d.listListings)
 		v1.GET("/world/stats", d.worldStats)
@@ -124,6 +125,8 @@ func NewRouter(d Deps) *gin.Engine {
 			agent.GET("/agents/me", requireScope(d, auth.ScopeAgentRead), d.getMyAgent)
 			agent.GET("/agents/me/observations", requireScope(d, auth.ScopeAgentRead), d.getObservations)
 			agent.GET("/agents/me/events", requireScope(d, auth.ScopeAgentRead), d.getMyEvents)
+			agent.GET("/agents/me/messages", requireScope(d, auth.ScopeMessagesRead), d.getInbox)
+			agent.POST("/agents/me/messages/read", requireScope(d, auth.ScopeMessagesRead), d.markRead)
 
 			// THE single mutation endpoint (invariant #1, ADR-015).
 			agent.POST("/agents/me/actions", d.postAction)

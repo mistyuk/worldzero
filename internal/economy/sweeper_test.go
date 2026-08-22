@@ -91,9 +91,14 @@ func TestSweeperRecordsCrossings(t *testing.T) {
 	}
 }
 
-// TestSweeperIsQuietWhenNothingChanged is the other half of ADR-008. A settled
-// world must produce no events at all — otherwise the log fills with clock ticks
-// and stops being a history.
+// TestSweeperIsQuietWhenNothingChanged is the other half of ADR-008. Once a
+// citizen is classified, sweeping again must say nothing about it — otherwise
+// the log fills with clock ticks and stops being a history.
+//
+// Scoped to this test's own agent on purpose. Go runs packages in parallel
+// against one test database, so "the world as a whole is settled" is not
+// something one test can assert while another package is busy creating
+// citizens. The property that matters is per-agent anyway.
 func TestSweeperIsQuietWhenNothingChanged(t *testing.T) {
 	d := testutil.DB(t)
 	s := newSweeper(d)
@@ -102,31 +107,44 @@ func TestSweeperIsQuietWhenNothingChanged(t *testing.T) {
 	agent := newAgent(t, d)
 	starve(t, d, agent, 40, economy.StateOK)
 
-	// Drain first. The sweeper is global and the test database is shared, so
-	// other tests' citizens may have crossings outstanding — sweeping once
-	// settles this agent but not necessarily the world.
+	// Drain until this agent has been classified.
 	for range 30 {
 		n, err := s.Sweep(ctx)
 		if err != nil {
 			t.Fatalf("draining sweep: %v", err)
 		}
+		if state, _ := energyStateOf(t, d, agent); state == economy.StateLow {
+			break
+		}
 		if n == 0 {
 			break
 		}
 	}
+	if state, _ := energyStateOf(t, d, agent); state != economy.StateLow {
+		t.Fatalf("agent is %s after draining, want low", state)
+	}
 
-	// Now the world is settled. Sweeping again must write nothing at all.
-	before := testutil.MaxSeq(t, d)
+	before := eventsAbout(t, d, agent)
 	for range 3 {
 		if _, err := s.Sweep(ctx); err != nil {
 			t.Fatalf("repeat sweep: %v", err)
 		}
 	}
-	if after := testutil.MaxSeq(t, d); after != before {
-		t.Fatalf("repeated sweeps of a settled world appended %d events; the log would "+
-			"fill with clock ticks (ADR-008)", after-before)
+	if after := eventsAbout(t, d, agent); after != before {
+		t.Fatalf("repeated sweeps appended %d further events about a settled citizen; "+
+			"the log would fill with clock ticks (ADR-008)", after-before)
 	}
-	_ = agent
+}
+
+// eventsAbout counts the events naming an agent.
+func eventsAbout(t *testing.T, d *db.DB, agentID string) int {
+	t.Helper()
+	var n int
+	if err := d.Pool().QueryRow(context.Background(),
+		`SELECT count(*) FROM event_participants WHERE agent_id = $1`, agentID).Scan(&n); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	return n
 }
 
 // TestSweeperReachesEveryone is the regression test for a batch that was not a

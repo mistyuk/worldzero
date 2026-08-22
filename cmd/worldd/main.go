@@ -29,6 +29,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
+	"github.com/mistyuk/worldzero/internal/messaging"
 	"github.com/mistyuk/worldzero/internal/world"
 )
 
@@ -138,6 +139,7 @@ func run() error {
 	registry := action.NewRegistry()
 	world.Verbs(registry, clk, gen)
 	economy.Verbs(registry, ledger, clk, gen)
+	messaging.Verbs(registry, clk, gen)
 	log.Info("registered actions", "verbs", registry.Types())
 
 	dispatcher := action.NewDispatcher(registry, database, appender, action.NewLimiter(), clk, gen)

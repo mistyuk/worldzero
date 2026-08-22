@@ -11,6 +11,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/identity"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
 	"github.com/mistyuk/worldzero/internal/kernel/worldclock"
+	"github.com/mistyuk/worldzero/internal/messaging"
 	"github.com/mistyuk/worldzero/internal/world"
 )
 
@@ -78,12 +79,19 @@ func (d Deps) getObservations(c *gin.Context) {
 		return
 	}
 
+	unread, err := messaging.UnreadCount(ctx, d.DB.Pool(), p.AgentID)
+	if err != nil {
+		fail(c, d.Logger, err)
+		return
+	}
+
 	out := gin.H{
-		"agent":      agent,
-		"wallet":     wallet,
-		"world_time": d.Clock.Now(),
-		"real_time":  d.Clock.Real(),
-		"world_day":  worldclock.Day(d.World, d.Clock.Now()),
+		"agent":           agent,
+		"wallet":          wallet,
+		"unread_messages": unread,
+		"world_time":      d.Clock.Now(),
+		"real_time":       d.Clock.Real(),
+		"world_day":       worldclock.Day(d.World, d.Clock.Now()),
 	}
 
 	if agent.LocationID != nil {

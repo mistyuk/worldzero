@@ -243,17 +243,45 @@ func Since(ctx context.Context, q Querier, afterSeq int64, limit int) ([]Event, 
 // and each move lands in TWO locations' feeds — can fill every observer's
 // twenty-slot window and blind the world's primary perception channel, entirely
 // within the rules and with nothing logged.
+//
+// Newest first, which is the order an agent reads a room in.
 func Nearby(ctx context.Context, q Querier, locationID string, limit int) ([]Event, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+
+	// Three steps, and the order of them is the whole point.
+	//
+	// The obvious one-liner — SELECT DISTINCT ON (agent_id, type) ... LIMIT n —
+	// is wrong, and wrong in a way that hides: DISTINCT ON requires ORDER BY to
+	// lead with its own columns, so the LIMIT takes the first n rows BY AGENT ID
+	// rather than the n most recent. A busy room would show an arbitrary
+	// alphabetical slice of its history forever, and an event from an agent with
+	// a late id would never appear to anyone. That is not a slow query, it is a
+	// blind spot.
+	//
+	// So: take a bounded window of the most recent events (which the btree on
+	// (location, seq DESC) serves directly), dedupe inside it, then order what
+	// survives by recency. The scan stays bounded and the answer is actually the
+	// newest.
 	rows, err := q.Query(ctx, `
-		SELECT DISTINCT ON (agent_id, type) seq, id, type, agent_id, subject_ids, payload, created_at
-		FROM events
-		WHERE event_location_id = $1 OR event_from_location_id = $1
-		ORDER BY agent_id, type, seq DESC
+		WITH recent AS (
+			SELECT seq, id, type, agent_id, subject_ids, payload, created_at
+			FROM events
+			WHERE event_location_id = $1 OR event_from_location_id = $1
+			ORDER BY seq DESC
+			LIMIT $3
+		),
+		deduped AS (
+			SELECT DISTINCT ON (agent_id, type) *
+			FROM recent
+			ORDER BY agent_id, type, seq DESC
+		)
+		SELECT seq, id, type, agent_id, subject_ids, payload, created_at
+		FROM deduped
+		ORDER BY seq DESC
 		LIMIT $2
-	`, locationID, limit)
+	`, locationID, limit, nearbyScanWindow)
 	if err != nil {
 		return nil, fmt.Errorf("read nearby events: %w", err)
 	}
@@ -270,12 +298,15 @@ func Nearby(ctx context.Context, q Querier, locationID string, limit int) ([]Eve
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	// Newest first, which is the order an agent reads a room in.
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
 	return out, nil
 }
+
+// nearbyScanWindow is how much recent history the dedupe looks at.
+//
+// Wide enough that a room with a lot of chatter still yields a full page after
+// deduplication, narrow enough that the scan is bounded no matter how long the
+// world has been running.
+const nearbyScanWindow = 200
 
 // ForSubject returns events an agent is a SUBJECT of, oldest first.
 //

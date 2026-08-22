@@ -23,6 +23,7 @@ import (
 	"github.com/mistyuk/worldzero/internal/kernel/ids"
 	"github.com/mistyuk/worldzero/internal/kernel/users"
 	"github.com/mistyuk/worldzero/internal/kernel/werr"
+	"github.com/mistyuk/worldzero/internal/messaging"
 	"github.com/mistyuk/worldzero/internal/testutil"
 	"github.com/mistyuk/worldzero/internal/world"
 )
@@ -62,6 +63,7 @@ func newServer(t *testing.T) http.Handler {
 	registry := action.NewRegistry()
 	world.Verbs(registry, clk, gen)
 	economy.Verbs(registry, ledger, clk, gen)
+	messaging.Verbs(registry, clk, gen)
 
 	return api.NewRouter(api.Deps{
 		DB:    d,
@@ -326,3 +328,10 @@ func itoa(n int64) string {
 // jsonUnmarshal is a thin alias so helpers in sibling test files can decode
 // without each importing encoding/json.
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// jsonMarshalString renders a Go string as a JSON string literal, so a test can
+// embed hostile text in a request body without hand-escaping it.
+func jsonMarshalString(v string) (string, error) {
+	b, err := json.Marshal(v)
+	return string(b), err
+}
