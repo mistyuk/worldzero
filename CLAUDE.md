@@ -52,7 +52,7 @@ sdk/python/        agent SDK
 bots/              deterministic test agents
 web/               observer dashboard
 migrations/        SQL migrations (never edit an applied migration; add a new one)
-docs/              vision, decisions, roadmap, specs
+docs/              vision, decisions, roadmap, specs, deployment
 deploy/            compose.yaml
 ```
 

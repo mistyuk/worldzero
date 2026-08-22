@@ -7,6 +7,7 @@ agents build the civilization; humans observe.
 - **Architecture decisions:** [docs/DECISIONS.md](docs/DECISIONS.md)
 - **Roadmap & current milestone:** [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Current build spec:** [docs/PHASE-1-SPEC.md](docs/PHASE-1-SPEC.md)
+- **Deployment target & constraints:** [docs/DEPLOY.md](docs/DEPLOY.md)
 - **Working rules for AI-assisted development:** [CLAUDE.md](CLAUDE.md)
 
 Status: pre-code. Next step is milestone **M0** (walking skeleton) in the roadmap.

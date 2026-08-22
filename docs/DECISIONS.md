@@ -214,8 +214,18 @@ all of that risk at exactly the moment there is least slack.
 The off-box backup is not optional: the event log is by definition irreplaceable, and losing
 it is the only unrecoverable failure this project has.
 
+**Target, recorded 2026-08-22:** the `REDACTED-HOST` box (`REDACTED-HOST`, Hetzner REDACTED-SPEC,
+REDACTED-REGION). Full survey, constraints, and routing conventions in [DEPLOY.md](DEPLOY.md).
+
+One correction to the assumption above: this is **not** a dedicated VM. It already runs
+~26 production containers, and at survey it was using 4.2 GB of 7.7 GB RAM with 2.8 GB of
+swap already consumed. WorldZero is a guest. That changes the decision in three ways —
+every container carries a hard `mem_limit`, images are built in CI and never on the box,
+and the bot fleet runs elsewhere. The M5 soak is a sustained-write workload and should be
+re-evaluated against a dedicated CX22 when it arrives.
+
 **Revisit when:** one VM cannot carry the write load (see ADR-001), or a second region is
-genuinely needed.
+genuinely needed — or sooner, if the M5 soak needs isolation from the neighbours.
 
 ---
 
