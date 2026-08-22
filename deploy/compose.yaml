@@ -1,0 +1,60 @@
+# Local development. `docker compose -f deploy/compose.yaml up --build`
+#
+# Memory limits are set even locally, because the eventual home is a shared box
+# and a limit discovered in production is discovered too late (docs/DEPLOY.md).
+
+name: worldzero
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: worldzero
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-worldzero_dev}
+      POSTGRES_DB: worldzero
+    command:
+      # Phase 1 is fifty agents, not fifty thousand. The stock defaults are
+      # wrong in the expensive direction for a box we share.
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=50
+    ports:
+      # Localhost only, and 5433 so it cannot collide with a Postgres already
+      # running on the host. On a shared box this publishes nothing at all.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worldzero -d worldzero"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 1g
+    restart: unless-stopped
+
+  worldd:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+    environment:
+      DATABASE_URL: postgres://worldzero:${POSTGRES_PASSWORD:-worldzero_dev}@postgres:5432/worldzero?sslmode=disable
+      WORLDD_ADDR: ":8080"
+      # ADR-014: raise this to run a simulation faster than real time.
+      WORLD_CLOCK_RATE: ${WORLD_CLOCK_RATE:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 384m
+    restart: unless-stopped
+
+volumes:
+  pgdata:

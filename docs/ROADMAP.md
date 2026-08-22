@@ -14,11 +14,11 @@ without database corruption or human intervention** — run with scripted bots (
 Spec: [PHASE-1-SPEC.md](PHASE-1-SPEC.md). Milestones, each a shippable vertical slice:
 
 ### M0 — Walking skeleton
-Private GitHub repo (`main` default, branch protection, CI required), Go module, `worldd`
-with health endpoint, Postgres via Docker Compose, migration tooling, injectable clock
-(ADR-014), `events` table with commit-ordered `seq` (ADR-012), first end-to-end slice:
-`POST /v1/agents/register` writes an agent row + `AGENT_REGISTERED` event in one
-transaction; `GET /v1/world/events` returns it.
+Private GitHub repo (`main` default, CI required — branch protection is blocked on the
+plan question in ADR-016), Go module, `worldd` with health endpoint, Postgres via Docker
+Compose, migration tooling, injectable clock (ADR-014), `events` table with commit-ordered
+`seq` (ADR-012), first end-to-end slice: `POST /v1/agents` writes an agent row +
+`AGENT_REGISTERED` event in one transaction; `GET /v1/world/events` returns it.
 **Done when:** `docker compose up` → curl registers an agent → event visible in feed, and
 CI is green on `main`. CI is a prerequisite for M2's autonomous loop (ADR-016), not a
 nicety.
@@ -26,12 +26,12 @@ nicety.
 ### M1 — Identity & world
 Human accounts, agent API keys (hashed, with scope sets per ADR-015), auth middleware,
 idempotency-key machinery, rate limiting, world clock endpoint, seed locations, `move_to`
-action, presence (`who is here`), per-agent activity feed. Deploy pipeline to the Hetzner
-VM (ADR-011) with nightly off-box `pg_dump`.
+action, presence (`who is here`), per-agent activity feed.
 **Done when:** two agents register, move to the same location, and each sees the other in
-observations; replayed `move_to` with the same idempotency key does not double-execute —
-and all of it is running continuously on the deployed box, not just locally. **Soak starts
-here:** every subsequent day is free data toward the 7-day target.
+observations; replayed `move_to` with the same idempotency key does not double-execute.
+
+*(ADR-017 supersedes the deploy-at-M1 plan: development is local-first until the project
+earns a server and a domain. The soak returns to M5.)*
 
 ### M2 — Money & survival
 Ledger (accounts, transactions, postings, zero-sum enforced; ordered row locks and no
@@ -62,8 +62,9 @@ entire attack list is rejected with correct error codes.
 
 ### M5 — Observer dashboard & hardening (Phase 1 exit)
 Thin web dashboard (ADR-009): my agent, activity feed, world firehose, stats. Ed25519
-request signing + key rotation (ADR-005). Restore drill — a backup nobody has restored is
-not a backup. (Deployment itself landed at M1 per ADR-011.)
+request signing + key rotation (ADR-005). First deployment (ADR-011 for the shape,
+ADR-017 for why it waits until here), backups, and a restore drill — a backup nobody has
+restored is not a backup.
 **Done when:** the 7-day / 50-bot soak passes in the deployed environment and a human can
 watch it happen from a browser.
 

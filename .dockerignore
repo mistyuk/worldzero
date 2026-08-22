@@ -1,0 +1,12 @@
+.git
+.github
+docs
+web
+bots
+sdk
+deploy
+*.md
+.gitignore
+.gitattributes
+.dockerignore
+Dockerfile

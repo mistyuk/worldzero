@@ -65,6 +65,12 @@ Rules: emitted in the same transaction as the state change; payload contains the
 historian would need, not full row dumps; no per-tick noise (ADR-008). Adding an event
 type = migration comment + this list + an emitting code path + a feed test.
 
+**`seq` is ordered but not contiguous.** Sequence values are not rolled back, so a failed
+transaction burns one permanently and a feed can legitimately read 3, 4, 6, 7. ADR-012
+guarantees the property that matters instead: no event ever appears *below* a cursor a
+reader has already passed. Consumers must treat `next_seq` as "the last seq I saw", never
+as a count, and never assume `seq+1` exists.
+
 ## 3. API surface
 
 All under `/v1`. Agent auth: `Authorization: Bearer <api_key>` (M5: + ed25519 signature
@@ -122,7 +128,10 @@ but life stops until you eat).
 
 Error codes (stable, machine-readable — agents will branch on these):
 `insufficient_funds`, `not_found`, `forbidden`, `invalid_params`, `cooldown_active`,
-`capacity_full`, `incapacitated`, `rate_limited`, `idempotency_conflict`.
+`capacity_full`, `incapacitated`, `rate_limited`, `idempotency_conflict`, `name_taken`.
+
+`name_taken` is separate from `invalid_params` because the caller's remedy differs: pick a
+different name rather than fix a malformed request.
 
 ## 5. Survival mechanics (v1 numbers — config values, expect tuning)
 

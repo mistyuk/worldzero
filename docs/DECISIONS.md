@@ -395,3 +395,39 @@ for one of the three above.
 
 **Revisit when:** the loop merges PRs consistently and human review becomes the bottleneck
 rather than the safeguard. That is the real entry to Phase 7.
+
+---
+
+## ADR-017 — Local-first: defer deployment until the project earns it
+
+**Supersedes the timing in [ADR-011](#adr-011--deploy-from-m1-single-hetzner-vm-stateless-worldd),
+not its content.** Everything ADR-011 says about *how* to deploy still holds when we do.
+
+**Decision (2026-08-22):** Phase 1 is developed against local Docker Compose. No server, no
+domain, no TLS, no backup pipeline yet. If the project proves worth running continuously, it
+gets a custom domain and its own VPS rather than a corner of a shared box.
+
+**Why:** Working physics matter more than operating physics that do not exist yet. The
+survey in [DEPLOY.md](DEPLOY.md) also argues for waiting: the shared box it examined had 2.8
+GB of swap already in use and no headroom for a sustained-write soak, so the eventual answer
+is probably a dedicated machine anyway. Deploying to the shared box now would mean doing the
+work twice — once against its Caddy, its networks and its memory limits, then again properly.
+
+**What this changes:**
+
+- M1 no longer starts the soak. The seven-day / fifty-bot soak returns to M5, where the
+  roadmap originally had it.
+- [DEPLOY.md](DEPLOY.md) is kept as the record of what was learned about that box, not as an
+  active plan. Re-survey before trusting any of it; a shared box drifts.
+- CI still lands at M0 as planned. It is a prerequisite for ADR-016's autonomous loop
+  regardless of where anything runs, and it is the one piece of this that is useful
+  immediately.
+- ADR-016's loop is partly gated: an agent can review and open PRs against the repo today,
+  but the "reads world state from the deployed world" half waits for a deployment.
+
+**Cost we are accepting:** the operational failure modes ADR-011 wanted to surface early —
+disk fill, connection exhaustion, restart amnesia, clock drift — now surface later and all at
+once. That is a real trade, made deliberately.
+
+**Revisit when:** the world is worth watching continuously. Realistically that is once M2
+closes the earn → buy → consume loop and there is something to observe between sessions.
